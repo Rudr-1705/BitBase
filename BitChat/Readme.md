@@ -1,4 +1,4 @@
-# Task 1 — ChatService
+# Task 1 — BitChat
 
 A simple, well-structured C++ implementation of a chat service demonstrating object-oriented design using classes for Users, Messages, Chats (Direct and Group), and a ChatService manager.
 
