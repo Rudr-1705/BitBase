@@ -1,4 +1,4 @@
-#include "meta.h"
+#include "meta/meta.h"
 #include <iostream>
 
 MetaCommandResult MetaCommandHandler::handle(const std::string & input) {

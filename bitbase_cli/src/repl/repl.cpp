@@ -1,10 +1,10 @@
 #include <iostream>
 #include <string>
 
-#include "repl.h"
-#include "meta.h"
-#include "parser.h"
-#include "executor.h"
+#include "repl/repl.h"
+#include "meta/meta.h"
+#include "parser/parser.h"
+#include "executor/executor.h"
 
 void Repl::start() {
 	MetaCommandHandler meta_handler;
