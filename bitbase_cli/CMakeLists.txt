@@ -25,4 +25,5 @@ add_executable(bitbase_cli
 
     src/storage/table/table.cpp
     src/storage/row_format/row_format.cpp
+    src/storage/pager/pager.cpp
 )
