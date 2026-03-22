@@ -1,19 +1,39 @@
 #include "storage/table/table.h"
 
 // INSERT
-void Table::insert(const Row& row) {
-    rows.push_back(row);
+void Table::insert(const Row &row)
+{
+    std::array<char, ROW_SIZE> buffer;
+
+    serialize_row(row, buffer.data());
+
+    rows.push_back(buffer);
 }
 
 // SELECT *
-const std::vector<Row>& Table::get_all() const {
-    return rows;
+std::vector<Row> Table::get_all() const
+{
+    std::vector<Row> result;
+    for (const auto &buffer : rows)
+    {
+        Row dest;
+        deserialize_row(buffer.data(), dest);
+        result.push_back(dest);
+    }
+
+    return result;
 }
 
 // DELETE
-bool Table::delete_by_id(uint32_t id) {
-    for (auto it = rows.begin(); it != rows.end(); ++it) {
-        if (it->id == id) {
+bool Table::delete_by_id(uint32_t id)
+{
+    for (auto it = rows.begin(); it != rows.end(); ++it)
+    {
+        Row r;
+        deserialize_row(it->data(), r);
+
+        if (r.id == id)
+        {
             rows.erase(it);
             return true;
         }
@@ -22,10 +42,16 @@ bool Table::delete_by_id(uint32_t id) {
 }
 
 // UPDATE
-bool Table::update(const Row& row) {
-    for (auto& r : rows) {
-        if (r.id == row.id) {
-            r = row;
+bool Table::update(const Row &row)
+{
+    for (auto &buffer : rows)
+    {
+        Row exisiting;
+        deserialize_row(buffer.data(), exisiting);
+
+        if (exisiting.id == row.id)
+        {
+            serialize_row(row, buffer.data());
             return true;
         }
     }

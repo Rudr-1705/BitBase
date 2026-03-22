@@ -14,4 +14,15 @@ file(GLOB_RECURSE SOURCES
 )
 
 # Create executable
-add_executable(bitbase_cli ${SOURCES})
+add_executable(bitbase_cli
+    src/main.cpp
+    src/repl/repl.cpp
+    src/parser/parser.cpp
+    src/executor/executor.cpp
+    src/meta/meta.cpp
+    src/utils/tokenizer.cpp
+    src/utils/string_utils.cpp
+
+    src/storage/table/table.cpp
+    src/storage/row_format/row_format.cpp
+)
