@@ -1,10 +1,31 @@
 #include "storage/table/table.h"
 #include <cstring>
 
+constexpr uint32_t METADATA_PAGE_NUM = 0;
+constexpr uint32_t NUM_ROWS_OFFSET = 0;
+
 Table::Table(const char *filename)
 {
     pager = new Pager(filename);
-    num_rows = 0;
+
+    if (pager->file_length == 0)
+    {
+        num_rows = 0;
+    }
+    else
+    {
+        void *page = pager->get_page(METADATA_PAGE_NUM);
+        num_rows = *(uint32_t *)((char *)page + NUM_ROWS_OFFSET);
+    }
+}
+
+void Table::persist_num_rows()
+{
+    void *page = pager->get_page(METADATA_PAGE_NUM);
+
+    *(uint32_t *)((char *)page + NUM_ROWS_OFFSET) = num_rows;
+
+    pager->flush(METADATA_PAGE_NUM);
 }
 
 Table::~Table()
@@ -12,25 +33,26 @@ Table::~Table()
     delete pager;
 }
 
-void* row_slot(Table* table, uint32_t row_num)
+void *row_slot(Table *table, uint32_t row_num)
 {
-    uint32_t page_num = row_num / (PAGE_SIZE / ROW_SIZE);
+    uint32_t page_num = row_num / (PAGE_SIZE / ROW_SIZE) + 1;
 
-    void* page = table->pager->get_page(page_num);
-    
+    void *page = table->pager->get_page(page_num);
+
     uint32_t row_offset = row_num % (PAGE_SIZE / ROW_SIZE);
     uint32_t byte_offset = row_offset * ROW_SIZE;
 
-    return (char*)page + byte_offset;               
+    return (char *)page + byte_offset;
 }
 
-void Table::insert(const Row& row)
+void Table::insert(const Row &row)
 {
-    void* destination = row_slot(this, num_rows);
+    void *destination = row_slot(this, num_rows);
 
-    serialize_row(row, (char*)destination);
+    serialize_row(row, (char *)destination);
 
     num_rows++;
+    persist_num_rows();
 }
 
 std::vector<Row> Table::get_all() const
@@ -41,8 +63,8 @@ std::vector<Row> Table::get_all() const
     {
         Row r;
 
-        void* source = row_slot((Table*)this, i);
-        deserialize_row((char*)source, r);
+        void *source = row_slot((Table *)this, i);
+        deserialize_row((char *)source, r);
 
         result.push_back(r);
     }
@@ -55,37 +77,38 @@ bool Table::delete_by_id(uint32_t id)
     for (uint32_t i = 0; i < num_rows; i++)
     {
         Row r;
-        void* source = row_slot(this, i);
-        deserialize_row((char*)source, r);
+        void *source = row_slot(this, i);
+        deserialize_row((char *)source, r);
 
         if (r.id == id)
         {
             // shift rows left
             for (uint32_t j = i + 1; j < num_rows; j++)
             {
-                void* dest = row_slot(this, j - 1);
-                void* src = row_slot(this, j);
+                void *dest = row_slot(this, j - 1);
+                void *src = row_slot(this, j);
                 memcpy(dest, src, ROW_SIZE);
             }
 
             num_rows--;
+            persist_num_rows();
             return true;
         }
     }
     return false;
 }
 
-bool Table::update(const Row& row)
+bool Table::update(const Row &row)
 {
     for (uint32_t i = 0; i < num_rows; i++)
     {
         Row r;
-        void* dest = row_slot(this, i);
-        deserialize_row((char*)dest, r);
+        void *dest = row_slot(this, i);
+        deserialize_row((char *)dest, r);
 
         if (r.id == row.id)
         {
-            serialize_row(row, (char*)dest);
+            serialize_row(row, (char *)dest);
             return true;
         }
     }

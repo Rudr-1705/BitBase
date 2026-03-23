@@ -18,4 +18,7 @@ public:
     std::vector<Row> get_all() const;
     bool delete_by_id(uint32_t id);
     bool update(const Row &row);
+
+private:
+    void persist_num_rows();
 };
