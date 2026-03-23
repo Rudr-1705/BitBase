@@ -2,6 +2,11 @@
 #include "storage/table/table.h"
 #include <iostream>
 
+Executor::Executor(const char *filename)
+	: table(filename)
+{
+}
+
 void Executor::execute(const Statement &statement)
 {
 	switch (statement.type)

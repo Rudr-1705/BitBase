@@ -9,7 +9,7 @@
 void Repl::start() {
 	MetaCommandHandler meta_handler;
 	Parser parser;
-	Executor executor;
+	Executor executor("test.db");
 
 	std::string input;
 

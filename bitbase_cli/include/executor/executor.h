@@ -2,8 +2,10 @@
 #include "parser/statement.h"
 #include "storage/table/table.h"
 
-class Executor {
-	Table table;
+class Executor
+{
 public:
-	void execute(const Statement& statement);
+	Table table;
+	Executor(const char *filename);
+	void execute(const Statement &statement);
 };

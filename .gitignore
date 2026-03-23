@@ -42,3 +42,6 @@ __pycache__/
 
 # Node (if frontend evolves)
 node_modules/
+
+# test db
+test.db
