@@ -6,22 +6,26 @@
 #include "parser/parser.h"
 #include "executor/executor.h"
 
-void Repl::start() {
+void Repl::start()
+{
 	MetaCommandHandler meta_handler;
 	Parser parser;
 	Executor executor("test.db");
 
 	std::string input;
 
-	while (true) {
+	while (true)
+	{
 		std::cout << "Bitbase> ";
 
-		if (!std::getline(std::cin, input)) {
+		if (!std::getline(std::cin, input))
+		{
 			std::cout << "\n";
 			break;
 		}
 
-		if (input.empty()) {
+		if (input.empty())
+		{
 			continue;
 		}
 
@@ -29,7 +33,8 @@ void Repl::start() {
 		{
 			MetaCommandResult result = meta_handler.handle(input);
 
-			if (result == MetaCommandResult::EXIT) {
+			if (result == MetaCommandResult::EXIT)
+			{
 				break;
 			}
 
@@ -41,11 +46,15 @@ void Repl::start() {
 
 		bool success = parser.parse(input, statement, error_message);
 
-		if (!success) {
+		if (!success)
+		{
 			std::cout << "Error : " << error_message << "\n";
 			continue;
 		}
 
 		executor.execute(statement);
 	}
+
+	std::cout << "DEBUG: num_pages=" << executor.table.pager->num_pages << "\n";
+	std::cout << "DEBUG: num_rows=" << executor.table.num_rows << "\n";
 }
