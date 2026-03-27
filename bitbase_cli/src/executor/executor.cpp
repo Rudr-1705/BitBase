@@ -1,6 +1,11 @@
 #include "executor/executor.h"
 #include <iostream>
 
+Database &Executor::get_db()
+{
+	return db;
+}
+
 void Executor::execute(const Statement &statement)
 {
 	switch (statement.type)

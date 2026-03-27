@@ -31,7 +31,7 @@ void Repl::start()
 
 		if (input[0] == '.')
 		{
-			MetaCommandResult result = meta_handler.handle(input);
+			MetaCommandResult result = meta_handler.handle(input, executor.get_db());
 
 			if (result == MetaCommandResult::EXIT)
 			{

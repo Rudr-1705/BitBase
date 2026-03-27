@@ -12,4 +12,5 @@ public:
 	Executor() = default;
 
 	void execute(const Statement &statement);
+	Database& get_db();
 };

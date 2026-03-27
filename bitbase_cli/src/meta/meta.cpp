@@ -1,14 +1,18 @@
 #include "meta/meta.h"
 #include <iostream>
 
-MetaCommandResult MetaCommandHandler::handle(const std::string & input) {
+MetaCommandResult MetaCommandHandler::handle(const std::string &input, Database &db)
+{
 	if (input == ".exit")
 	{
 		return MetaCommandResult::EXIT;
 	}
 	else if (input == ".tables")
 	{
-		std::cout << "Table: users\n";
+		for (auto &pair : db.tables)
+		{
+			std::cout << pair.first << "\n";
+		}
 		return MetaCommandResult::SUCCESS;
 	}
 	else if (input == ".help")
