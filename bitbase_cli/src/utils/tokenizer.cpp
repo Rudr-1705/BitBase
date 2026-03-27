@@ -7,9 +7,33 @@ std::vector<std::string> tokenize(const std::string &input)
 {
     std::vector<std::string> tokens;
     std::string current;
+    bool in_string = false;
 
-    for (char c : input)
+    for (size_t i = 0; i < input.size(); i++)
     {
+        char c = input[i];
+
+        if (c == '\'')
+        {
+            if (in_string)
+            {
+                tokens.push_back(current);
+                current.clear();
+                in_string = false;
+            }
+            else
+            {
+                in_string = true;
+            }
+            continue;
+        }
+
+        if (in_string)
+        {
+            current += c;
+            continue;
+        }
+
         if (std::isspace(c))
         {
             if (!current.empty())
@@ -34,9 +58,7 @@ std::vector<std::string> tokenize(const std::string &input)
     }
 
     if (!current.empty())
-    {
         tokens.push_back(current);
-    }
 
     return tokens;
 }

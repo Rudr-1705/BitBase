@@ -4,6 +4,9 @@
 
 bool Parser::parse(const std::string &input, Statement &statement, std::string &error)
 {
+    statement.raw_values.clear();
+    statement.schema.columns.clear();
+    
     auto tokens = tokenize(input);
 
     if (tokens.empty())
@@ -15,8 +18,9 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- INSERT ----------------
     if (tokens[0] == "insert")
     {
-        // insert into users 1 alice mail 20 true
-        if (tokens.size() < 8 || tokens[1] != "into")
+        // INSERT INTO users VALUES ( ... )
+
+        if (tokens.size() < 6 || tokens[1] != "into" || tokens[3] != "values")
         {
             error = "Invalid INSERT syntax";
             return false;
@@ -25,11 +29,26 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::INSERT;
         statement.table_name = tokens[2];
 
-        statement.id = std::stoi(tokens[3]);
-        statement.username = tokens[4];
-        statement.email = tokens[5];
-        statement.age = std::stoi(tokens[6]);
-        statement.is_active = (tokens[7] == "true");
+        if (tokens[4] != "(")
+        {
+            error = "Expected '(' after VALUES";
+            return false;
+        }
+
+        int i = 5;
+
+        while (i < tokens.size())
+        {
+            if (tokens[i] == ")")
+                break;
+
+            statement.raw_values.push_back(tokens[i]);
+
+            i++;
+
+            if (tokens[i] == ",")
+                i++;
+        }
 
         return true;
     }

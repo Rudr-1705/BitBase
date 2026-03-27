@@ -3,7 +3,8 @@
 #include <cstdint>
 #include "storage/schema/schema.h"
 
-enum class StatementType {
+enum class StatementType
+{
     INSERT,
     SELECT,
     DELETE,
@@ -12,11 +13,14 @@ enum class StatementType {
     DROP_TABLE
 };
 
-struct Statement {
+struct Statement
+{
     StatementType type;
 
     std::string table_name;
     Schema schema;
+
+    std::vector<std::string> raw_values;
 
     uint32_t id = 0;
     std::string username;
