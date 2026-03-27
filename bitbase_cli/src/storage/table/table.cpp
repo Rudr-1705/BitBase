@@ -188,3 +188,8 @@ bool Table::update(const Row &row)
     serialize_row(row, (char *)slot);
     return true;
 }
+
+void Table::set_schema(const Schema& s)
+{
+    schema = s;
+}

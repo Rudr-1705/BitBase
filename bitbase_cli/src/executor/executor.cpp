@@ -122,6 +122,10 @@ void Executor::execute(const Statement &statement)
 		}
 		else
 		{
+			Table *table = db.get_table(statement.table_name);
+
+			table->set_schema(statement.schema);
+
 			std::cout << "Executed CREATE TABLE\n";
 		}
 

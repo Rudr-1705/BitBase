@@ -90,17 +90,52 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     }
 
     // ---------------- CREATE TABLE ----------------
-    if (tokens[0] == "create")
+    if (tokens[0] == "create" && tokens[1] == "table")
     {
-        // create table users
-        if (tokens.size() < 3 || tokens[1] != "table")
+        statement.type = StatementType::CREATE_TABLE;
+        statement.table_name = tokens[2];
+
+        if (tokens[3] != "(")
         {
-            error = "Invalid CREATE syntax";
+            error = "Expected '(' after table name";
             return false;
         }
 
-        statement.type = StatementType::CREATE_TABLE;
-        statement.table_name = tokens[2];
+        int i = 4;
+
+        while (i < tokens.size())
+        {
+            if (tokens[i] == ")")
+                break;
+
+            std::string col_name = tokens[i++];
+            std::string type_str = tokens[i++];
+
+            DataType type;
+
+            if (type_str == "INT")
+                type = DataType::INT32;
+            else if (type_str == "BIGINT")
+                type = DataType::INT64;
+            else if (type_str == "FLOAT")
+                type = DataType::FLOAT;
+            else if (type_str == "DOUBLE")
+                type = DataType::DOUBLE;
+            else if (type_str == "BOOL")
+                type = DataType::BOOL;
+            else if (type_str == "TEXT")
+                type = DataType::TEXT;
+            else
+            {
+                error = "Unknown data type: " + type_str;
+                return false;
+            }
+
+            statement.schema.add_column(col_name, type);
+
+            if (tokens[i] == ",")
+                i++; // skip comma
+        }
 
         return true;
     }
