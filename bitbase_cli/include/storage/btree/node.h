@@ -3,60 +3,58 @@
 #include <cstdint>
 #include "storage/pager/pager.h"
 
-// ---------------- NODE TYPES ----------------
-
 enum class NodeType : uint8_t
 {
     INTERNAL = 0,
     LEAF = 1
 };
 
-// ---------------- COMMON HEADER ----------------
-
-constexpr uint32_t NODE_TYPE_SIZE = sizeof(uint8_t);
+// ---------- COMMON ----------
 constexpr uint32_t NODE_TYPE_OFFSET = 0;
+constexpr uint32_t IS_ROOT_OFFSET = 1;
+constexpr uint32_t COMMON_NODE_HEADER_SIZE = 2;
 
-constexpr uint32_t IS_ROOT_SIZE = sizeof(uint8_t);
-constexpr uint32_t IS_ROOT_OFFSET = NODE_TYPE_OFFSET + NODE_TYPE_SIZE;
+// ---------- LEAF ----------
+constexpr uint32_t LEAF_NODE_NUM_CELLS_OFFSET = COMMON_NODE_HEADER_SIZE;
+constexpr uint32_t LEAF_NODE_NEXT_LEAF_OFFSET = LEAF_NODE_NUM_CELLS_OFFSET + 4;
 
-constexpr uint32_t COMMON_NODE_HEADER_SIZE =
-    NODE_TYPE_SIZE + IS_ROOT_SIZE;
+constexpr uint32_t LEAF_NODE_HEADER_SIZE = COMMON_NODE_HEADER_SIZE + 4 + 4;
 
-// ---------------- LEAF NODE HEADER ----------------
-
-constexpr uint32_t LEAF_NODE_NUM_CELLS_SIZE = sizeof(uint32_t);
-constexpr uint32_t LEAF_NODE_NUM_CELLS_OFFSET =
-    COMMON_NODE_HEADER_SIZE;
-
-constexpr uint32_t LEAF_NODE_HEADER_SIZE =
-    COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS_SIZE;
-
-// ---------------- LEAF NODE BODY ----------------
-
-constexpr uint32_t LEAF_NODE_KEY_SIZE = sizeof(uint32_t);
-constexpr uint32_t LEAF_NODE_VALUE_SIZE = sizeof(uint32_t);
-
-constexpr uint32_t LEAF_NODE_CELL_SIZE =
-    LEAF_NODE_KEY_SIZE + LEAF_NODE_VALUE_SIZE;
-
-constexpr uint32_t LEAF_NODE_SPACE_FOR_CELLS =
-    PAGE_SIZE - LEAF_NODE_HEADER_SIZE;
+constexpr uint32_t LEAF_NODE_CELL_SIZE = 8; // key + value
 
 constexpr uint32_t LEAF_NODE_MAX_CELLS =
-    LEAF_NODE_SPACE_FOR_CELLS / LEAF_NODE_CELL_SIZE;
+    (PAGE_SIZE - LEAF_NODE_HEADER_SIZE) / LEAF_NODE_CELL_SIZE;
 
-// ---------------- ACCESSORS ----------------
+// ---------- INTERNAL ----------
+constexpr uint32_t INTERNAL_NODE_NUM_KEYS_OFFSET = COMMON_NODE_HEADER_SIZE;
+constexpr uint32_t INTERNAL_NODE_RIGHT_CHILD_OFFSET = INTERNAL_NODE_NUM_KEYS_OFFSET + 4;
+constexpr uint32_t INTERNAL_NODE_HEADER_SIZE = COMMON_NODE_HEADER_SIZE + 8;
+constexpr uint32_t INTERNAL_NODE_CELL_SIZE = 8;
 
-// Header
+// ---------- ACCESS ----------
 uint8_t *node_type(void *node);
 uint8_t *node_is_root(void *node);
 
-// Leaf
 uint32_t *leaf_node_num_cells(void *node);
-uint32_t *leaf_node_key(void *node, uint32_t cell_num);
-uint32_t *leaf_node_value(void *node, uint32_t cell_num);
+uint32_t *leaf_node_next_leaf(void *node);
+uint32_t *leaf_node_key(void *node, uint32_t i);
+uint32_t *leaf_node_value(void *node, uint32_t i);
 
-// ---------------- OPERATIONS ----------------
+uint32_t *internal_node_num_keys(void *node);
+uint32_t *internal_node_child(void *node, uint32_t i);
+uint32_t *internal_node_key(void *node, uint32_t i);
+uint32_t *internal_node_right_child(void *node);
 
-// Initialize a leaf node
+// ---------- OPS ----------
 void initialize_leaf_node(void *node);
+void initialize_internal_node(void *node);
+
+uint32_t leaf_node_find(void *node, uint32_t key);
+
+void leaf_node_insert(uint32_t page_num, void *node,
+                      uint32_t key, uint32_t value, Pager *pager);
+
+void leaf_node_split_and_insert(uint32_t old_page_num, void *old_node,
+                                uint32_t key, uint32_t value, Pager *pager);
+
+void create_new_root(Pager *pager, uint32_t left_page, uint32_t right_page);
