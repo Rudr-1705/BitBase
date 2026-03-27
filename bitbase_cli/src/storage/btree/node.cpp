@@ -387,8 +387,8 @@ void create_new_root(Pager *pager,
     void *right = pager->get_page(right_page);
     *node_is_root(right) = 0;
 
-    std::cout << ">>> new root at page " << old_root_page
-              << " key=" << separator_key
-              << " left=" << left_page
-              << " right=" << right_page << "\n";
+    // std::cout << ">>> new root at page " << old_root_page
+    //           << " key=" << separator_key
+    //           << " left=" << left_page
+    //           << " right=" << right_page << "\n";
 }

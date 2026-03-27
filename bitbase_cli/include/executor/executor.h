@@ -1,11 +1,15 @@
 #pragma once
+
 #include "parser/statement.h"
-#include "storage/table/table.h"
+#include "storage/database/database.h"
 
 class Executor
 {
+private:
+	Database db;
+
 public:
-	Table table;
-	Executor(const char *filename);
+	Executor() = default;
+
 	void execute(const Statement &statement);
 };

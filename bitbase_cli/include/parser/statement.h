@@ -13,6 +13,9 @@ enum class StatementType {
 
 struct Statement {
     StatementType type;
+
+    std::string table_name;
+
     uint32_t id = 0;
     std::string username;
     std::string email;

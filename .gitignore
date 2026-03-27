@@ -44,6 +44,6 @@ __pycache__/
 node_modules/
 
 # test db
-test.db
-test.txt
-test2.txt
+users.db
+followers.db
+bitbase.meta

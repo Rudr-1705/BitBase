@@ -10,7 +10,7 @@ void Repl::start()
 {
 	MetaCommandHandler meta_handler;
 	Parser parser;
-	Executor executor("test.db");
+	Executor executor;
 
 	std::string input;
 
@@ -54,7 +54,4 @@ void Repl::start()
 
 		executor.execute(statement);
 	}
-
-	std::cout << "DEBUG: num_pages=" << executor.table.pager->num_pages << "\n";
-	std::cout << "DEBUG: num_rows=" << executor.table.num_rows << "\n";
 }
