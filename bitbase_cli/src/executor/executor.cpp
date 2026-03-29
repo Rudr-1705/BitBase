@@ -6,42 +6,11 @@ Database &Executor::get_db()
 	return db;
 }
 
-void fill_row_from_schema(const Schema &schema,
-						  const std::vector<std::string> &values,
-						  Row &r)
-{
-	for (size_t i = 0; i < schema.columns.size(); i++)
-	{
-		const auto &col = schema.columns[i];
-		const std::string &val = values[i];
-
-		if (col.name == "id")
-		{
-			r.id = std::stoi(val);
-		}
-		else if (col.name == "username")
-		{
-			r.username = val;
-		}
-		else if (col.name == "email")
-		{
-			r.email = val;
-		}
-		else if (col.name == "age")
-		{
-			r.age = std::stoi(val);
-		}
-		else if (col.name == "is_active")
-		{
-			r.is_active = (val == "true");
-		}
-	}
-}
-
 void Executor::execute(const Statement &statement)
 {
 	switch (statement.type)
 	{
+	// ===================== INSERT =====================
 	case StatementType::INSERT:
 	{
 		Table *table = db.get_table(statement.table_name);
@@ -60,24 +29,14 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		Row r;
-
-		try
-		{
-			fill_row_from_schema(schema, statement.raw_values, r);
-		}
-		catch (...)
-		{
-			std::cout << "Type conversion error\n";
-			break;
-		}
-
-		table->insert(r);
+		// ✅ Directly pass values (no Row, no mapping)
+		table->insert(statement.raw_values);
 
 		std::cout << "Executed INSERT\n";
 		break;
 	}
 
+	// ===================== SELECT =====================
 	case StatementType::SELECT:
 	{
 		Table *table = db.get_table(statement.table_name);
@@ -88,22 +47,51 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		const auto rows = table->get_all();
-
-		for (const auto &r : rows)
+		if (statement.has_where)
 		{
-			std::cout << "("
-					  << r.id << ", "
-					  << r.username << ", "
-					  << r.email << ", "
-					  << r.age << ", "
-					  << (r.is_active ? "true" : "false")
-					  << ")\n";
+			std::vector<Value> row;
+
+			if (table->find_by_id(statement.where_id, row))
+			{
+				std::cout << "(";
+				for (size_t i = 0; i < row.size(); i++)
+				{
+					std::visit([](auto &&val)
+							   { std::cout << val; }, row[i]);
+
+					if (i != row.size() - 1)
+						std::cout << ", ";
+				}
+				std::cout << ")\n";
+			}
+			else
+			{
+				std::cout << "Row not found\n";
+			}
+		}
+		else
+		{
+			auto rows = table->get_all_dynamic();
+
+			for (const auto &row : rows)
+			{
+				std::cout << "(";
+				for (size_t i = 0; i < row.size(); i++)
+				{
+					std::visit([](auto &&val)
+							   { std::cout << val; }, row[i]);
+
+					if (i != row.size() - 1)
+						std::cout << ", ";
+				}
+				std::cout << ")\n";
+			}
 		}
 
 		break;
 	}
 
+	// ===================== DELETE =====================
 	case StatementType::DELETE:
 	{
 		Table *table = db.get_table(statement.table_name);
@@ -114,7 +102,13 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		bool deleted = table->delete_by_id(statement.id);
+		if (!statement.has_where)
+		{
+			std::cout << "DELETE requires WHERE id = ...\n";
+			break;
+		}
+
+		bool deleted = table->delete_by_id(statement.where_id);
 
 		if (!deleted)
 		{
@@ -128,6 +122,7 @@ void Executor::execute(const Statement &statement)
 		break;
 	}
 
+	// ===================== UPDATE =====================
 	case StatementType::UPDATE:
 	{
 		Table *table = db.get_table(statement.table_name);
@@ -138,27 +133,12 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		Row r;
-		r.id = statement.id;
-		r.username = statement.username;
-		r.email = statement.email;
-		r.age = statement.age;
-		r.is_active = statement.is_active;
-
-		bool updated = table->update(r);
-
-		if (!updated)
-		{
-			std::cout << "Row not found\n";
-		}
-		else
-		{
-			std::cout << "Executed UPDATE\n";
-		}
-
+		// ⚠️ Not implemented for dynamic rows yet
+		std::cout << "UPDATE not supported yet\n";
 		break;
 	}
 
+	// ===================== CREATE =====================
 	case StatementType::CREATE_TABLE:
 	{
 		if (!db.create_table(statement.table_name))
@@ -168,7 +148,6 @@ void Executor::execute(const Statement &statement)
 		else
 		{
 			Table *table = db.get_table(statement.table_name);
-
 			table->set_schema(statement.schema);
 
 			std::cout << "Executed CREATE TABLE\n";
@@ -177,6 +156,7 @@ void Executor::execute(const Statement &statement)
 		break;
 	}
 
+	// ===================== DROP =====================
 	case StatementType::DROP_TABLE:
 	{
 		if (!db.drop_table(statement.table_name))

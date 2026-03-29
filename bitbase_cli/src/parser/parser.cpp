@@ -6,7 +6,8 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 {
     statement.raw_values.clear();
     statement.schema.columns.clear();
-    
+    statement.has_where = false;
+
     auto tokens = tokenize(input);
 
     if (tokens.empty())
@@ -42,11 +43,19 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
             if (tokens[i] == ")")
                 break;
 
-            statement.raw_values.push_back(tokens[i]);
+            std::string val = tokens[i];
+
+            // remove quotes if present
+            if (val.front() == '\'' && val.back() == '\'')
+            {
+                val = val.substr(1, val.size() - 2);
+            }
+
+            statement.raw_values.push_back(val);
 
             i++;
 
-            if (tokens[i] == ",")
+            if (i < tokens.size() && tokens[i] == ",")
                 i++;
         }
 
@@ -56,7 +65,8 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- SELECT ----------------
     if (tokens[0] == "select")
     {
-        // select * from users
+        // select * from users [where id = X]
+
         if (tokens.size() < 4 || tokens[2] != "from")
         {
             error = "Invalid SELECT syntax";
@@ -66,14 +76,28 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::SELECT;
         statement.table_name = tokens[3];
 
+        // WHERE support
+        if (tokens.size() >= 8 && tokens[4] == "where")
+        {
+            statement.has_where = true;
+            statement.where_column = tokens[5];
+            statement.where_value = tokens[7];
+
+            if (statement.where_column == "id")
+            {
+                statement.where_id = std::stoi(statement.where_value);
+            }
+        }
+
         return true;
     }
 
     // ---------------- DELETE ----------------
     if (tokens[0] == "delete")
     {
-        // delete from users 1
-        if (tokens.size() < 4 || tokens[1] != "from")
+        // delete from users where id = X
+
+        if (tokens.size() < 7 || tokens[1] != "from" || tokens[3] != "where")
         {
             error = "Invalid DELETE syntax";
             return false;
@@ -81,7 +105,15 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
         statement.type = StatementType::DELETE;
         statement.table_name = tokens[2];
-        statement.id = std::stoi(tokens[3]);
+
+        statement.has_where = true;
+        statement.where_column = tokens[4];
+        statement.where_value = tokens[6];
+
+        if (statement.where_column == "id")
+        {
+            statement.where_id = std::stoi(statement.where_value);
+        }
 
         return true;
     }
@@ -89,22 +121,9 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- UPDATE ----------------
     if (tokens[0] == "update")
     {
-        // update users 1 alice mail 20 true
-        if (tokens.size() < 7)
-        {
-            error = "Invalid UPDATE syntax";
-            return false;
-        }
-
+        // not implemented for dynamic schema yet
         statement.type = StatementType::UPDATE;
         statement.table_name = tokens[1];
-
-        statement.id = std::stoi(tokens[2]);
-        statement.username = tokens[3];
-        statement.email = tokens[4];
-        statement.age = std::stoi(tokens[5]);
-        statement.is_active = (tokens[6] == "true");
-
         return true;
     }
 
@@ -152,8 +171,8 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
             statement.schema.add_column(col_name, type);
 
-            if (tokens[i] == ",")
-                i++; // skip comma
+            if (i < tokens.size() && tokens[i] == ",")
+                i++;
         }
 
         return true;
@@ -162,7 +181,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- DROP TABLE ----------------
     if (tokens[0] == "drop")
     {
-        // drop table users
         if (tokens.size() < 3 || tokens[1] != "table")
         {
             error = "Invalid DROP syntax";

@@ -14,4 +14,7 @@ public:
     int get_column_index(const std::string &name) const;
 
     size_t size() const { return columns.size(); }
+
+    std::vector<char> serialize() const;
+    void deserialize(const char *data);
 };

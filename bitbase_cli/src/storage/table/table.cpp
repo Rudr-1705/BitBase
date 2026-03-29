@@ -1,195 +1,275 @@
 #include "storage/table/table.h"
-#include "storage/btree/node.h"
 #include <cstring>
+#include <iostream>
+
+// ===================== CONSTANTS =====================
 
 constexpr uint32_t METADATA_PAGE_NUM = 0;
-constexpr uint32_t ROOT_PAGE_NUM = 1;
 constexpr uint32_t NUM_ROWS_OFFSET = 0;
-static constexpr uint32_t HEAP_PAGE_BASE = 500; // page 0 = meta, page 1 = root
-static constexpr uint32_t ROWS_PER_PAGE = PAGE_SIZE / ROW_SIZE;
+constexpr uint32_t SCHEMA_SIZE_OFFSET = sizeof(uint32_t);
 
-// ===================== CTOR / DTOR =====================
+// ===================== CTOR =====================
 
 Table::Table(const char *filename)
 {
     pager = new Pager(filename);
 
+    void *page = pager->get_page(METADATA_PAGE_NUM);
+
     if (pager->file_length == 0)
     {
+        std::memset(page, 0, PAGE_SIZE);
+
         num_rows = 0;
-        pager->num_pages = HEAP_PAGE_BASE;
-        pager->next_btree_page = 2;
+        *(uint32_t *)((char *)page + NUM_ROWS_OFFSET) = 0;
+        *(uint32_t *)((char *)page + SCHEMA_SIZE_OFFSET) = 0;
 
-        void *meta = pager->get_page(METADATA_PAGE_NUM);
-        *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET) = 0;
-        *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 4) = HEAP_PAGE_BASE; // ← ADD
-        *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 8) = 2;
         pager->flush(METADATA_PAGE_NUM);
-
-        void *root = pager->get_page(ROOT_PAGE_NUM);
-        initialize_leaf_node(root);
-        *node_is_root(root) = 1;
-        pager->flush(ROOT_PAGE_NUM);
     }
     else
     {
-        void *meta = pager->get_page(METADATA_PAGE_NUM);
-        num_rows = *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET);
-        pager->num_pages = *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 4);       // ← ADD
-        pager->next_btree_page = *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 8); // ← ADD
+        num_rows = *(uint32_t *)((char *)page + NUM_ROWS_OFFSET);
+
+        uint32_t schema_size =
+            *(uint32_t *)((char *)page + SCHEMA_SIZE_OFFSET);
+
+        if (schema_size > 0)
+        {
+            const char *schema_data =
+                (char *)page + sizeof(uint32_t) + sizeof(uint32_t);
+
+            schema.deserialize(schema_data);
+        }
+    }
+
+    // ===== INIT ROOT NODE =====
+    void *root = pager->get_page(root_page);
+
+    if (*node_type(root) != (uint8_t)NodeType::LEAF)
+    {
+        initialize_leaf_node(root);
+        *node_is_root(root) = 1;
     }
 }
 
-Table::~Table() { delete pager; }
+// ===================== DTOR =====================
 
-// In table.cpp
+Table::~Table()
+{
+    persist_num_rows();
+    delete pager;
+}
+
+// ===================== METADATA =====================
+
 void Table::persist_num_rows()
 {
-    void *meta = pager->get_page(METADATA_PAGE_NUM);
-    *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET) = num_rows;
-    *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 4) = pager->num_pages;
-    *(uint32_t *)((char *)meta + NUM_ROWS_OFFSET + 8) = pager->next_btree_page; // ← ADD
+    void *page = pager->get_page(METADATA_PAGE_NUM);
+
+    *(uint32_t *)((char *)page + NUM_ROWS_OFFSET) = num_rows;
+
     pager->flush(METADATA_PAGE_NUM);
 }
 
-// ===================== ROW STORAGE =====================
-// Rows are stored in a flat heap: page 2 onwards, ROWS_PER_PAGE rows each.
-// The B+tree maps key → row_num (the index into this heap).
+// ===================== HELPER =====================
 
-static void *row_slot(Table *table, uint32_t row_num)
+uint32_t Table::get_row_start_page() const
 {
-    uint32_t page_num = HEAP_PAGE_BASE + row_num / ROWS_PER_PAGE;
-    void *page = table->pager->get_page(page_num);
-    uint32_t offset = (row_num % ROWS_PER_PAGE) * ROW_SIZE;
-    return (char *)page + offset;
+    return 2;
 }
 
 // ===================== INSERT =====================
 
-void Table::insert(const Row &row)
+void Table::insert(const std::vector<std::string> &values)
 {
-    // 1. Store row in heap at slot num_rows
-    void *slot = row_slot(this, num_rows);
-    serialize_row(row, (char *)slot);
+    std::vector<char> row_bytes =
+        serialize_dynamic_row(schema, values);
 
-    // 2. Insert (id → row_num) into B+tree
-    SplitResult res = btree_insert(ROOT_PAGE_NUM, row.id, num_rows, pager);
+    uint32_t row_size = row_bytes.size();
 
-    if (res.did_split)
+    uint32_t page_num = get_row_start_page();
+
+    while (true)
     {
-        // Root was split — create a new root at ROOT_PAGE_NUM
-        create_new_root(pager, ROOT_PAGE_NUM, res.new_page, res.key);
+        void *page = pager->get_page(page_num);
+
+        uint32_t *used_ptr = (uint32_t *)page;
+
+        if (*used_ptr == 0)
+            *used_ptr = sizeof(uint32_t);
+
+        uint32_t used = *used_ptr;
+
+        if (used + sizeof(uint32_t) + row_size <= PAGE_SIZE)
+        {
+            char *ptr = (char *)page + used;
+
+            uint32_t offset = used;
+
+            std::memcpy(ptr, &row_size, sizeof(uint32_t));
+            ptr += sizeof(uint32_t);
+
+            std::memcpy(ptr, row_bytes.data(), row_size);
+
+            *used_ptr += sizeof(uint32_t) + row_size;
+
+            pager->flush(page_num);
+
+            // ===== B+ TREE INSERT (FIXED) =====
+            RowPointer rp{page_num, offset};
+
+            uint32_t key = std::stoi(values[0]);
+
+            SplitResult res = btree_insert(root_page, key, rp, pager); // ✅ FIX
+
+            if (res.did_split)
+            {
+                uint32_t old_root = root_page;
+                create_new_root(pager, old_root, res.new_page, res.key);
+                root_page = pager->num_pages - 1;
+            }
+
+            break;
+        }
+
+        page_num++;
     }
 
     num_rows++;
     persist_num_rows();
 }
 
-// ===================== GET ALL (B+tree leaf scan) =====================
-// Traverse linked leaf pages in order — true B+tree sequential scan.
-
-std::vector<Row> Table::get_all() const
+// ===================== SELECT =====================
+std::vector<std::vector<Value>> Table::get_all_dynamic() const
 {
-    std::vector<Row> result;
-    result.reserve(num_rows);
+    std::vector<std::vector<Value>> result;
 
-    // Walk the leaf chain starting from the leftmost leaf.
-    // The leftmost leaf is always reachable by following child[0] from the root.
-    uint32_t page_num = ROOT_PAGE_NUM;
-    void *node = pager->get_page(page_num);
+    uint32_t page_num = get_row_start_page();
 
-    // Descend to leftmost leaf
-    while (*node_type(node) == (uint8_t)NodeType::INTERNAL)
-    {
-        page_num = *internal_node_child(node, 0);
-        node = pager->get_page(page_num);
-    }
-
-    // Scan all leaves in order via next_leaf pointers
     while (true)
     {
-        uint32_t n = *leaf_node_num_cells(node);
-        for (uint32_t i = 0; i < n; i++)
+        void *page = pager->get_page(page_num);
+
+        uint32_t used = *(uint32_t *)page;
+
+        // 🚨 STOP CONDITION (VERY IMPORTANT)
+        if (used == 0)
         {
-            uint32_t row_num = *leaf_node_value(node, i);
-            Row r;
-            void *src = row_slot((Table *)this, row_num);
-            deserialize_row((char *)src, r);
-            result.push_back(r);
+            break;
         }
 
-        uint32_t next = *leaf_node_next_leaf(node);
-        if (next == 0)
-            break; // no more siblings
-        page_num = next;
-        node = pager->get_page(page_num);
+        if (used < sizeof(uint32_t))
+        {
+            break;
+        }
+
+        char *ptr = (char *)page + sizeof(uint32_t);
+        char *end = (char *)page + used;
+
+        while (ptr + sizeof(uint32_t) <= end)
+        {
+            int32_t row_size;
+            memcpy(&row_size, ptr, sizeof(int32_t));
+
+            // 🚨 skip deleted rows
+            if (row_size < 0)
+            {
+                ptr += sizeof(int32_t) + (-row_size);
+                continue;
+            }
+
+            // SAFETY
+            if (row_size == 0 || row_size > PAGE_SIZE)
+                break;
+
+            if (ptr + sizeof(uint32_t) + row_size > end)
+                break;
+
+            ptr += sizeof(uint32_t);
+
+            std::vector<Value> values;
+            deserialize_dynamic_row(schema, ptr, values);
+
+            result.push_back(values);
+
+            ptr += row_size;
+        }
+
+        page_num++;
     }
 
     return result;
 }
 
-// ===================== FIND BY ID (B+tree point lookup) =====================
-
-static uint32_t btree_find(uint32_t page_num, uint32_t key, Pager *pager)
-{
-    void *node = pager->get_page(page_num);
-
-    if (*node_type(node) == (uint8_t)NodeType::INTERNAL)
-    {
-        uint32_t child = internal_find_child(node, key);
-        return btree_find(child, key, pager);
-    }
-
-    // Leaf: binary search
-    uint32_t pos = leaf_find(node, key);
-    uint32_t n = *leaf_node_num_cells(node);
-
-    if (pos < n && *leaf_node_key(node, pos) == key)
-        return *leaf_node_value(node, pos); // row_num
-
-    return UINT32_MAX; // not found
-}
-
 // ===================== DELETE =====================
-// Logical delete: find the row, compact the heap, update num_rows.
-// NOTE: this does NOT remove the key from the B+tree (full tree deletion
-// is complex). For a production engine you'd mark the slot as a tombstone
-// and do periodic compaction. This keeps it simple and correct.
-
-bool Table::delete_by_id(uint32_t id)
+bool Table::delete_by_id(uint32_t key)
 {
-    uint32_t row_num = btree_find(ROOT_PAGE_NUM, id, pager);
-    if (row_num == UINT32_MAX)
+    bool found;
+
+    RowPointer rp = btree_find(root_page, key, pager, found);
+
+    if (!found)
         return false;
 
-    // Compact heap: shift all slots after row_num left by one
-    for (uint32_t i = row_num + 1; i < num_rows; i++)
-    {
-        void *dst = row_slot(this, i - 1);
-        void *src = row_slot(this, i);
-        memcpy(dst, src, ROW_SIZE);
-    }
+    void *page = pager->get_page(rp.page_id);
 
-    num_rows--;
-    persist_num_rows();
+    char *ptr = (char *)page + rp.offset;
+
+    // 🚨 MARK AS DELETED USING NEGATIVE SIZE
+    int32_t row_size;
+    std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+    row_size = -row_size; // mark deleted
+
+    std::memcpy(ptr, &row_size, sizeof(int32_t));
+
     return true;
-    // TODO: rebuild B+tree or use tombstone approach for production
 }
 
 // ===================== UPDATE =====================
 
-bool Table::update(const Row &row)
+bool Table::update()
 {
-    uint32_t row_num = btree_find(ROOT_PAGE_NUM, row.id, pager);
-    if (row_num == UINT32_MAX)
-        return false;
-
-    void *slot = row_slot(this, row_num);
-    serialize_row(row, (char *)slot);
-    return true;
+    return false;
 }
 
-void Table::set_schema(const Schema& s)
+// ===================== SCHEMA =====================
+
+void Table::set_schema(const Schema &s)
 {
     schema = s;
+
+    void *page = pager->get_page(0);
+
+    std::vector<char> schema_bytes = schema.serialize();
+    uint32_t size = schema_bytes.size();
+
+    std::memcpy((char *)page + SCHEMA_SIZE_OFFSET, &size, sizeof(uint32_t));
+
+    std::memcpy((char *)page + sizeof(uint32_t) + sizeof(uint32_t),
+                schema_bytes.data(), size);
+
+    pager->flush(0);
+}
+
+bool Table::find_by_id(uint32_t key, std::vector<Value> &result)
+{
+    bool found;
+
+    RowPointer rp = btree_find(root_page, key, pager, found);
+
+    if (!found)
+        return false;
+
+    void *page = pager->get_page(rp.page_id);
+
+    char *ptr = (char *)page + rp.offset;
+
+    uint32_t row_size;
+    std::memcpy(&row_size, ptr, sizeof(uint32_t));
+    ptr += sizeof(uint32_t);
+
+    deserialize_dynamic_row(schema, ptr, result);
+
+    return true;
 }

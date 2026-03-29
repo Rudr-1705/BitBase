@@ -29,4 +29,5 @@ add_executable(bitbase_cli
     src/storage/btree/node.cpp
     src/storage/database/database.cpp
     src/storage/schema/schema.cpp
+    src/storage/row_format/dynamic_row_format.cpp
 )
