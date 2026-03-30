@@ -30,6 +30,11 @@ public:
     bool find_by_id(uint32_t key, std::vector<Value> &result);
     bool delete_by_id(uint32_t id);
     bool update();
+    std::vector<std::vector<Value>> range_query(uint32_t start, uint32_t end);
+    std::vector<std::vector<Value>> scan_all_index();
+    bool update_by_id(uint32_t key,
+                      const std::string &column,
+                      const std::string &value);
 
 private:
     void persist_num_rows();

@@ -396,3 +396,52 @@ RowPointer btree_find(uint32_t page_num, uint32_t key, Pager *pager, bool &found
         return btree_find(child, key, pager, found);
     }
 }
+
+uint32_t btree_find_leaf(uint32_t page_num, uint32_t key, Pager *pager)
+{
+    void *node = pager->get_page(page_num);
+
+    if (*node_type(node) == (uint8_t)NodeType::LEAF)
+    {
+        return page_num;
+    }
+
+    uint32_t child = internal_find_child(node, key);
+    return btree_find_leaf(child, key, pager);
+}
+
+bool leaf_delete(void *node, uint32_t key)
+{
+    uint32_t n = *leaf_node_num_cells(node);
+
+    uint32_t i = 0;
+    while (i < n && *leaf_node_key(node, i) != key)
+        i++;
+
+    if (i == n)
+        return false;
+
+    // shift left
+    for (uint32_t j = i; j < n - 1; j++)
+    {
+        *leaf_node_key(node, j) = *leaf_node_key(node, j + 1);
+        *leaf_node_value(node, j) = *leaf_node_value(node, j + 1);
+    }
+
+    (*leaf_node_num_cells(node))--;
+
+    return true;
+}
+
+bool btree_delete(uint32_t page_num, uint32_t key, Pager *pager)
+{
+    void *node = pager->get_page(page_num);
+
+    if (*node_type(node) == (uint8_t)NodeType::LEAF)
+    {
+        return leaf_delete(node, key);
+    }
+
+    uint32_t child = internal_find_child(node, key);
+    return btree_delete(child, key, pager);
+}

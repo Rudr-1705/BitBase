@@ -65,8 +65,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- SELECT ----------------
     if (tokens[0] == "select")
     {
-        // select * from users [where id = X]
-
         if (tokens.size() < 4 || tokens[2] != "from")
         {
             error = "Invalid SELECT syntax";
@@ -76,16 +74,30 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::SELECT;
         statement.table_name = tokens[3];
 
-        // WHERE support
+        // RESET FLAGS
+        statement.has_where = false;
+        statement.is_range = false;
+
+        // ---------------- WHERE ----------------
         if (tokens.size() >= 8 && tokens[4] == "where")
         {
-            statement.has_where = true;
-            statement.where_column = tokens[5];
-            statement.where_value = tokens[7];
-
-            if (statement.where_column == "id")
+            // RANGE QUERY
+            if (tokens.size() >= 12 &&
+                tokens[5] == "id" && tokens[6] == ">=" &&
+                tokens[8] == "and" &&
+                tokens[9] == "id" && tokens[10] == "<=")
             {
-                statement.where_id = std::stoi(statement.where_value);
+                statement.is_range = true;
+                statement.range_start = std::stoi(tokens[7]);
+                statement.range_end = std::stoi(tokens[11]);
+            }
+            // POINT QUERY
+            else if (tokens[5] == "id" && tokens[6] == "=")
+            {
+                statement.has_where = true;
+                statement.where_column = "id";
+                statement.where_value = tokens[7];
+                statement.where_id = std::stoi(tokens[7]);
             }
         }
 
@@ -121,9 +133,40 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- UPDATE ----------------
     if (tokens[0] == "update")
     {
-        // not implemented for dynamic schema yet
+        // update users set name = 'z' where id = 5
+
+        if (tokens.size() < 10 || tokens[2] != "set")
+        {
+            error = "Invalid UPDATE syntax";
+            return false;
+        }
+
         statement.type = StatementType::UPDATE;
         statement.table_name = tokens[1];
+
+        // SET column = value
+        statement.update_column = tokens[3];
+        statement.update_value = tokens[5];
+
+        // remove quotes
+        if (statement.update_value.front() == '\'' && statement.update_value.back() == '\'')
+        {
+            statement.update_value =
+                statement.update_value.substr(1, statement.update_value.size() - 2);
+        }
+
+        // WHERE id = X
+        if (tokens[6] != "where")
+        {
+            error = "UPDATE requires WHERE";
+            return false;
+        }
+
+        statement.has_where = true;
+        statement.where_column = tokens[7];
+        statement.where_value = tokens[9];
+        statement.where_id = std::stoi(statement.where_value);
+
         return true;
     }
 

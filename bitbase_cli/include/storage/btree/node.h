@@ -110,3 +110,9 @@ uint32_t find_leftmost_leaf(Pager *pager, uint32_t page_num);
 
 bool leaf_search(void *node, uint32_t key, RowPointer &out);
 RowPointer btree_find(uint32_t root_page, uint32_t key, Pager *pager, bool &found);
+
+uint32_t btree_find_leaf(uint32_t page_num, uint32_t key, Pager *pager);
+
+bool leaf_delete(void *node, uint32_t key);
+
+bool btree_delete(uint32_t page_num, uint32_t key, Pager *pager);

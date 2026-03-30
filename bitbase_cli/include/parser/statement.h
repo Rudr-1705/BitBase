@@ -43,4 +43,14 @@ struct Statement
     // -------- FUTURE (optional, safe to keep) --------
     bool has_limit = false;
     uint32_t limit = 0;
+
+    bool is_range = false;
+    uint32_t range_start = 0;
+    uint32_t range_end = 0;
+
+    bool is_update = false;
+    std::vector<std::string> update_values;
+
+    std::string update_column;
+    std::string update_value;
 };

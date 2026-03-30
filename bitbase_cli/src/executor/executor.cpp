@@ -47,6 +47,29 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
+		// ================= RANGE QUERY =================
+		if (statement.is_range)
+		{
+			auto rows = table->range_query(statement.range_start, statement.range_end);
+
+			for (const auto &row : rows)
+			{
+				std::cout << "(";
+				for (size_t i = 0; i < row.size(); i++)
+				{
+					std::visit([](auto &&val)
+							   { std::cout << val; }, row[i]);
+
+					if (i != row.size() - 1)
+						std::cout << ", ";
+				}
+				std::cout << ")\n";
+			}
+
+			break;
+		}
+
+		// ================= POINT LOOKUP =================
 		if (statement.has_where)
 		{
 			std::vector<Value> row;
@@ -68,24 +91,25 @@ void Executor::execute(const Statement &statement)
 			{
 				std::cout << "Row not found\n";
 			}
+
+			break;
 		}
-		else
+
+		// ================= FULL SCAN =================
+		auto rows = table->scan_all_index();
+
+		for (const auto &row : rows)
 		{
-			auto rows = table->get_all_dynamic();
-
-			for (const auto &row : rows)
+			std::cout << "(";
+			for (size_t i = 0; i < row.size(); i++)
 			{
-				std::cout << "(";
-				for (size_t i = 0; i < row.size(); i++)
-				{
-					std::visit([](auto &&val)
-							   { std::cout << val; }, row[i]);
+				std::visit([](auto &&val)
+						   { std::cout << val; }, row[i]);
 
-					if (i != row.size() - 1)
-						std::cout << ", ";
-				}
-				std::cout << ")\n";
+				if (i != row.size() - 1)
+					std::cout << ", ";
 			}
+			std::cout << ")\n";
 		}
 
 		break;
@@ -133,8 +157,20 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		// ⚠️ Not implemented for dynamic rows yet
-		std::cout << "UPDATE not supported yet\n";
+		bool updated = table->update_by_id(
+			statement.where_id,
+			statement.update_column,
+			statement.update_value);
+
+		if (!updated)
+		{
+			std::cout << "Update failed\n";
+		}
+		else
+		{
+			std::cout << "Executed UPDATE\n";
+		}
+
 		break;
 	}
 
