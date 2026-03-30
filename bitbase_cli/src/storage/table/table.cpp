@@ -211,24 +211,53 @@ std::vector<std::vector<Value>> Table::get_all_dynamic() const
 
 bool Table::delete_by_id(uint32_t key)
 {
-    bool found;
+    auto rows = find_all_by_id(key);
 
-    RowPointer rp = btree_find(root_page, key, pager, found);
-
-    if (!found)
+    if (rows.empty())
         return false;
 
-    if (!btree_delete(root_page, key, pager))
-        return false;
+    // delete ALL matching keys from B+ tree
+    while (true)
+    {
+        bool removed = btree_delete(root_page, key, pager);
+        if (!removed)
+            break;
+    }
 
-    void *page = pager->get_page(rp.page_id);
-    char *ptr = (char *)page + rp.offset;
+    // mark storage rows deleted
+    uint32_t leaf = btree_find_leaf(root_page, key, pager);
 
-    int32_t row_size;
-    std::memcpy(&row_size, ptr, sizeof(int32_t));
+    while (leaf != 0)
+    {
+        void *node = pager->get_page(leaf);
+        uint32_t n = *leaf_node_num_cells(node);
 
-    row_size = -row_size;
-    std::memcpy(ptr, &row_size, sizeof(int32_t));
+        for (uint32_t i = 0; i < n; i++)
+        {
+            uint32_t k = *leaf_node_key(node, i);
+
+            if (k < key)
+                continue;
+            if (k > key)
+                return true;
+
+            RowPointer rp = *leaf_node_value(node, i);
+
+            void *page = pager->get_page(rp.page_id);
+            char *ptr = (char *)page + rp.offset;
+
+            int32_t row_size;
+            std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+            if (row_size > 0)
+            {
+                row_size = -row_size;
+                std::memcpy(ptr, &row_size, sizeof(int32_t));
+            }
+        }
+
+        leaf = *leaf_node_next_leaf(node);
+    }
 
     return true;
 }
@@ -453,4 +482,73 @@ void Table::set_schema(const Schema &s)
                 size);
 
     pager->flush(METADATA_PAGE_NUM);
+}
+
+std::vector<std::vector<Value>> Table::find_all_by_id(uint32_t key)
+{
+    std::vector<std::vector<Value>> result;
+
+    uint32_t leaf = btree_find_leaf(root_page, key, pager);
+
+    while (leaf != 0)
+    {
+        void *node = pager->get_page(leaf);
+        uint32_t n = *leaf_node_num_cells(node);
+
+        for (uint32_t i = 0; i < n; i++)
+        {
+            uint32_t k = *leaf_node_key(node, i);
+
+            if (k < key)
+                continue;
+
+            if (k > key)
+                return result;
+
+            RowPointer rp = *leaf_node_value(node, i);
+
+            void *page = pager->get_page(rp.page_id);
+            char *ptr = (char *)page + rp.offset;
+
+            int32_t row_size;
+            std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+            if (row_size < 0)
+                continue;
+
+            ptr += sizeof(int32_t);
+
+            std::vector<Value> values;
+            deserialize_dynamic_row(schema, ptr, values);
+
+            result.push_back(values);
+        }
+
+        leaf = *leaf_node_next_leaf(node);
+    }
+
+    return result;
+}
+
+void Table::delete_all()
+{
+    auto rows = scan_all_index();
+
+    for (auto &row : rows)
+    {
+        uint32_t key = std::get<int>(row[0]);
+        delete_by_id(key);
+    }
+}
+
+void Table::update_all(const std::string &column,
+                       const std::string &value)
+{
+    auto rows = scan_all_index();
+
+    for (auto &row : rows)
+    {
+        uint32_t key = std::get<int>(row[0]);
+        update_by_id(key, column, value);
+    }
 }

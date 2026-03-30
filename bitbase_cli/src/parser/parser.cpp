@@ -107,9 +107,10 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- DELETE ----------------
     if (tokens[0] == "delete")
     {
-        // delete from users where id = X
+        // delete from users
+        // OR delete from users where id = X
 
-        if (tokens.size() < 7 || tokens[1] != "from" || tokens[3] != "where")
+        if (tokens.size() < 3 || tokens[1] != "from")
         {
             error = "Invalid DELETE syntax";
             return false;
@@ -118,13 +119,17 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::DELETE;
         statement.table_name = tokens[2];
 
-        statement.has_where = true;
-        statement.where_column = tokens[4];
-        statement.where_value = tokens[6];
-
-        if (statement.where_column == "id")
+        // WITH WHERE
+        if (tokens.size() >= 7 && tokens[3] == "where")
         {
+            statement.has_where = true;
+            statement.where_column = tokens[4];
+            statement.where_value = tokens[6];
             statement.where_id = std::stoi(statement.where_value);
+        }
+        else
+        {
+            statement.has_where = false; // DELETE ALL
         }
 
         return true;
@@ -133,9 +138,10 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- UPDATE ----------------
     if (tokens[0] == "update")
     {
-        // update users set name = 'z' where id = 5
+        // update users set name = 'x'
+        // OR update users set name = 'x' where id = 1
 
-        if (tokens.size() < 10 || tokens[2] != "set")
+        if (tokens.size() < 6 || tokens[2] != "set")
         {
             error = "Invalid UPDATE syntax";
             return false;
@@ -144,28 +150,27 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::UPDATE;
         statement.table_name = tokens[1];
 
-        // SET column = value
         statement.update_column = tokens[3];
         statement.update_value = tokens[5];
 
-        // remove quotes
         if (statement.update_value.front() == '\'' && statement.update_value.back() == '\'')
         {
             statement.update_value =
                 statement.update_value.substr(1, statement.update_value.size() - 2);
         }
 
-        // WHERE id = X
-        if (tokens[6] != "where")
+        // WITH WHERE
+        if (tokens.size() >= 10 && tokens[6] == "where")
         {
-            error = "UPDATE requires WHERE";
-            return false;
+            statement.has_where = true;
+            statement.where_column = tokens[7];
+            statement.where_value = tokens[9];
+            statement.where_id = std::stoi(statement.where_value);
         }
-
-        statement.has_where = true;
-        statement.where_column = tokens[7];
-        statement.where_value = tokens[9];
-        statement.where_id = std::stoi(statement.where_value);
+        else
+        {
+            statement.has_where = false; // UPDATE ALL
+        }
 
         return true;
     }

@@ -72,24 +72,27 @@ void Executor::execute(const Statement &statement)
 		// ================= POINT LOOKUP =================
 		if (statement.has_where)
 		{
-			std::vector<Value> row;
+			auto rows = table->find_all_by_id(statement.where_id);
 
-			if (table->find_by_id(statement.where_id, row))
+			if (rows.empty())
 			{
-				std::cout << "(";
-				for (size_t i = 0; i < row.size(); i++)
-				{
-					std::visit([](auto &&val)
-							   { std::cout << val; }, row[i]);
-
-					if (i != row.size() - 1)
-						std::cout << ", ";
-				}
-				std::cout << ")\n";
+				std::cout << "Row not found\n";
 			}
 			else
 			{
-				std::cout << "Row not found\n";
+				for (const auto &row : rows)
+				{
+					std::cout << "(";
+					for (size_t i = 0; i < row.size(); i++)
+					{
+						std::visit([](auto &&val)
+								   { std::cout << val; }, row[i]);
+
+						if (i != row.size() - 1)
+							std::cout << ", ";
+					}
+					std::cout << ")\n";
+				}
 			}
 
 			break;
@@ -128,7 +131,8 @@ void Executor::execute(const Statement &statement)
 
 		if (!statement.has_where)
 		{
-			std::cout << "DELETE requires WHERE id = ...\n";
+			table->delete_all();
+			std::cout << "Executed DELETE ALL\n";
 			break;
 		}
 
@@ -154,6 +158,15 @@ void Executor::execute(const Statement &statement)
 		if (!table)
 		{
 			std::cout << "Error: Table not found\n";
+			break;
+		}
+
+		if (!statement.has_where)
+		{
+			table->update_all(statement.update_column,
+							  statement.update_value);
+
+			std::cout << "Executed UPDATE ALL\n";
 			break;
 		}
 
