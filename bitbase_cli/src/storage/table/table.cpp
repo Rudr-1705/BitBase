@@ -625,7 +625,7 @@ void Table::update_all(const std::string &column,
 
 std::vector<std::vector<Value>> Table::filter_rows(
     const std::vector<std::vector<Value>> &rows,
-    const std::vector<std::pair<std::string, std::string>> &conditions)
+    const std::vector<Statement::Condition> &conds)
 {
     std::vector<std::vector<Value>> result;
 
@@ -633,34 +633,72 @@ std::vector<std::vector<Value>> Table::filter_rows(
     {
         bool ok = true;
 
-        for (const auto &cond : conditions)
+        for (const auto &cond : conds)
         {
-            const std::string &col = cond.first;
-            const std::string &val = cond.second;
-
-            int idx = -1;
-            for (size_t i = 0; i < schema.columns.size(); i++)
-            {
-                if (schema.columns[i].name == col)
-                {
-                    idx = i;
-                    break;
-                }
-            }
-
+            int idx = schema.get_column_index(cond.column);
             if (idx == -1)
             {
                 ok = false;
                 break;
             }
 
-            std::string actual = value_to_string(row[idx]);
+            std::string val = value_to_string(row[idx]);
+            std::string target = cond.value;
 
-            if (actual != val)
+            DataType type = schema.columns[idx].type;
+
+            try
             {
-                ok = false;
-                break;
+                // ===== NUMERIC TYPES =====
+                if (type == DataType::INT32 || type == DataType::INT64)
+                {
+                    long long v = std::stoll(val);
+                    long long t = std::stoll(target);
+
+                    if (cond.op == "=" && v != t)
+                        ok = false;
+                    else if (cond.op == "!=" && v == t)
+                        ok = false;
+                    else if (cond.op == ">" && !(v > t))
+                        ok = false;
+                    else if (cond.op == "<" && !(v < t))
+                        ok = false;
+                }
+                else if (type == DataType::FLOAT || type == DataType::DOUBLE)
+                {
+                    double v = std::stod(val);
+                    double t = std::stod(target);
+
+                    if (cond.op == "=" && v != t)
+                        ok = false;
+                    else if (cond.op == "!=" && v == t)
+                        ok = false;
+                    else if (cond.op == ">" && !(v > t))
+                        ok = false;
+                    else if (cond.op == "<" && !(v < t))
+                        ok = false;
+                }
+                else
+                {
+                    // ===== STRING / BOOL =====
+                    if (cond.op == "=" && val != target)
+                        ok = false;
+                    else if (cond.op == "!=" && val == target)
+                        ok = false;
+                    else if (cond.op == ">" && !(val > target))
+                        ok = false;
+                    else if (cond.op == "<" && !(val < target))
+                        ok = false;
+                }
             }
+            catch (...)
+            {
+                // conversion failed → treat as mismatch
+                ok = false;
+            }
+
+            if (!ok)
+                break;
         }
 
         if (ok)

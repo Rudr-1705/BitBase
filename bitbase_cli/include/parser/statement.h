@@ -23,36 +23,32 @@ struct Statement
 {
     StatementType type;
 
-    // -------- common --------
     std::string table_name;
-
-    // -------- CREATE TABLE --------
     Schema schema;
 
-    // -------- INSERT --------
     std::vector<std::string> raw_values;
 
-    // -------- WHERE (for SELECT / DELETE / UPDATE) --------
+    // ===== NEW =====
+    struct Condition
+    {
+        std::string column;
+        std::string op;
+        std::string value;
+    };
+
+    std::vector<Condition> conditions;
+
+    // ===== existing =====
     bool has_where = false;
-    std::string where_column; // e.g. "id"
-    std::string where_value;  // keep string, convert later
-
-    // -------- OPTIONAL: parsed numeric (fast path) --------
     uint32_t where_id = 0;
-
-    // -------- FUTURE (optional, safe to keep) --------
-    bool has_limit = false;
-    uint32_t limit = 0;
 
     bool is_range = false;
     uint32_t range_start = 0;
     uint32_t range_end = 0;
 
-    bool is_update = false;
-    std::vector<std::string> update_values;
+    std::string where_column;
+    std::string where_value;
 
     std::string update_column;
     std::string update_value;
-
-    std::vector<std::pair<std::string, std::string>> conditions;
 };

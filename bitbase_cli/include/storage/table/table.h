@@ -8,6 +8,7 @@
 #include "storage/schema/value.h"
 #include "storage/row_format/dynamic_row_format.h"
 #include "storage/btree/node.h"
+#include "parser/statement.h"
 
 class Table
 {
@@ -40,7 +41,7 @@ public:
 
     std::vector<std::vector<Value>> filter_rows(
         const std::vector<std::vector<Value>> &rows,
-        const std::vector<std::pair<std::string, std::string>> &conditions);
+        const std::vector<Statement::Condition> &conds);
 
     bool exists_by_id(uint32_t key);
     bool exists_value_in_column(int col_idx, const std::string &value);

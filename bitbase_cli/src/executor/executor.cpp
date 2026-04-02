@@ -105,12 +105,12 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
+		int pk_idx = table->schema.get_primary_index();
 		// ================= WHERE =================
 		if (statement.has_where)
 		{
 			std::vector<std::vector<Value>> rows;
 
-			int pk_idx = table->schema.get_primary_index();
 			std::string pk_name = (pk_idx != -1)
 									  ? table->schema.columns[pk_idx].name
 									  : "";
@@ -120,17 +120,24 @@ void Executor::execute(const Statement &statement)
 
 			for (auto &c : statement.conditions)
 			{
-				if (c.first == pk_name)
+				if (c.column == pk_name && c.op == "=")
 				{
 					has_pk = true;
-					key = std::stoul(c.second);
+					key = std::stoul(c.value);
 				}
 			}
 
 			if (has_pk)
+			{
 				rows = table->find_all_by_id(key);
+			}
 			else
-				rows = table->scan_all_index();
+			{
+				if (pk_idx != -1)
+					rows = table->scan_all_index(); // indexed scan
+				else
+					rows = table->get_all_dynamic();
+			}
 
 			rows = table->filter_rows(rows, statement.conditions);
 
@@ -158,7 +165,13 @@ void Executor::execute(const Statement &statement)
 		}
 
 		// ================= FULL SCAN =================
-		auto rows = table->scan_all_index();
+
+		std::vector<std::vector<Value>> rows;
+
+		if (pk_idx != -1)
+			rows = table->scan_all_index();
+		else
+			rows = table->get_all_dynamic();
 
 		for (const auto &row : rows)
 		{

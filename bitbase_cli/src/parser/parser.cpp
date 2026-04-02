@@ -89,6 +89,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
             }
 
             // GENERAL CONDITIONS
+            // GENERAL CONDITIONS
             int i = 5;
 
             while (i < tokens.size())
@@ -96,21 +97,28 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 if (i + 2 >= tokens.size())
                     break;
 
-                std::string col = tokens[i];
-                std::string val = tokens[i + 2];
+                Statement::Condition cond;
 
-                if (val.front() == '\'' && val.back() == '\'')
-                    val = val.substr(1, val.size() - 2);
+                cond.column = tokens[i++];
+                cond.op = tokens[i++]; // =, >, <, !=
+                cond.value = tokens[i++];
 
-                statement.conditions.push_back({col, val});
+                if (cond.value.front() == '\'' && cond.value.back() == '\'')
+                    cond.value = cond.value.substr(1, cond.value.size() - 2);
 
-                // detect id for index usage
-                if (col == "id")
+                statement.conditions.push_back(cond);
+
+                // optional: detect PK for optimization (only '=')
+                if (cond.column == "id" && cond.op == "=")
                 {
-                    statement.where_id = std::stoi(val);
+                    try
+                    {
+                        statement.where_id = std::stoul(cond.value);
+                    }
+                    catch (...)
+                    {
+                    }
                 }
-
-                i += 3;
 
                 if (i < tokens.size() && tokens[i] == "and")
                     i++;
