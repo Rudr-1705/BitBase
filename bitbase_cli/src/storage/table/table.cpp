@@ -552,3 +552,67 @@ void Table::update_all(const std::string &column,
         update_by_id(key, column, value);
     }
 }
+
+std::vector<std::vector<Value>> Table::filter_rows(
+    const std::vector<std::vector<Value>> &rows,
+    const std::vector<std::pair<std::string, std::string>> &conditions)
+{
+    std::vector<std::vector<Value>> result;
+
+    for (const auto &row : rows)
+    {
+        bool ok = true;
+
+        for (const auto &cond : conditions)
+        {
+            const std::string &col = cond.first;
+            const std::string &val = cond.second;
+
+            int idx = -1;
+            for (size_t i = 0; i < schema.columns.size(); i++)
+            {
+                if (schema.columns[i].name == col)
+                {
+                    idx = i;
+                    break;
+                }
+            }
+
+            if (idx == -1)
+            {
+                ok = false;
+                break;
+            }
+
+            std::string actual = value_to_string(row[idx]);
+
+            if (actual != val)
+            {
+                ok = false;
+                break;
+            }
+        }
+
+        if (ok)
+            result.push_back(row);
+    }
+
+    return result;
+}
+
+bool Table::exists_by_id(uint32_t key)
+{
+    bool found;
+    RowPointer rp = btree_find(root_page, key, pager, found);
+
+    if (!found)
+        return false;
+
+    void *page = pager->get_page(rp.page_id);
+    char *ptr = (char *)page + rp.offset;
+
+    int32_t row_size;
+    std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+    return row_size > 0; // not deleted
+}

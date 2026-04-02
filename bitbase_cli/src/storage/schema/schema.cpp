@@ -15,6 +15,14 @@ int Schema::get_column_index(const std::string &name) const
     return -1;
 }
 
+int Schema::get_primary_index() const
+{
+    for (int i = 0; i < (int)columns.size(); i++)
+        if (columns[i].is_primary)
+            return i;
+    return -1;
+}
+
 std::vector<char> Schema::serialize() const
 {
     std::vector<char> buffer;

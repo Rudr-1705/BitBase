@@ -53,4 +53,6 @@ struct Statement
 
     std::string update_column;
     std::string update_value;
+
+    std::vector<std::pair<std::string, std::string>> conditions;
 };

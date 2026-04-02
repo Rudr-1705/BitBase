@@ -38,6 +38,11 @@ public:
     void delete_all();
     void update_all(const std::string &column, const std::string &value);
 
+    std::vector<std::vector<Value>> filter_rows(
+        const std::vector<std::vector<Value>> &rows,
+        const std::vector<std::pair<std::string, std::string>> &conditions);
+
+    bool exists_by_id(uint32_t key);
 private:
     void persist_num_rows();
     uint32_t get_row_start_page() const;

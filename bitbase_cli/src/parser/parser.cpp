@@ -7,6 +7,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     statement.raw_values.clear();
     statement.schema.columns.clear();
     statement.has_where = false;
+    statement.conditions.clear();
 
     auto tokens = tokenize(input);
 
@@ -19,8 +20,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- INSERT ----------------
     if (tokens[0] == "insert")
     {
-        // INSERT INTO users VALUES ( ... )
-
         if (tokens.size() < 6 || tokens[1] != "into" || tokens[3] != "values")
         {
             error = "Invalid INSERT syntax";
@@ -45,16 +44,12 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
             std::string val = tokens[i];
 
-            // remove quotes if present
             if (val.front() == '\'' && val.back() == '\'')
-            {
                 val = val.substr(1, val.size() - 2);
-            }
 
             statement.raw_values.push_back(val);
 
             i++;
-
             if (i < tokens.size() && tokens[i] == ",")
                 i++;
         }
@@ -74,14 +69,14 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::SELECT;
         statement.table_name = tokens[3];
 
-        // RESET FLAGS
         statement.has_where = false;
         statement.is_range = false;
+        statement.conditions.clear();
 
         // ---------------- WHERE ----------------
-        if (tokens.size() >= 8 && tokens[4] == "where")
+        if (tokens.size() >= 5 && tokens[4] == "where")
         {
-            // RANGE QUERY
+            // RANGE QUERY (keep your optimization)
             if (tokens.size() >= 12 &&
                 tokens[5] == "id" && tokens[6] == ">=" &&
                 tokens[8] == "and" &&
@@ -90,15 +85,40 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 statement.is_range = true;
                 statement.range_start = std::stoi(tokens[7]);
                 statement.range_end = std::stoi(tokens[11]);
+                return true;
             }
-            // POINT QUERY
-            else if (tokens[5] == "id" && tokens[6] == "=")
+
+            // GENERAL CONDITIONS
+            int i = 5;
+
+            while (i < tokens.size())
             {
-                statement.has_where = true;
-                statement.where_column = "id";
-                statement.where_value = tokens[7];
-                statement.where_id = std::stoi(tokens[7]);
+                if (i + 2 >= tokens.size())
+                    break;
+
+                std::string col = tokens[i];
+                std::string val = tokens[i + 2];
+
+                if (val.front() == '\'' && val.back() == '\'')
+                    val = val.substr(1, val.size() - 2);
+
+                statement.conditions.push_back({col, val});
+
+                // detect id for index usage
+                if (col == "id")
+                {
+                    statement.where_id = std::stoi(val);
+                }
+
+                i += 3;
+
+                if (i < tokens.size() && tokens[i] == "and")
+                    i++;
+                else
+                    break;
             }
+
+            statement.has_where = !statement.conditions.empty();
         }
 
         return true;
@@ -107,9 +127,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- DELETE ----------------
     if (tokens[0] == "delete")
     {
-        // delete from users
-        // OR delete from users where id = X
-
         if (tokens.size() < 3 || tokens[1] != "from")
         {
             error = "Invalid DELETE syntax";
@@ -119,7 +136,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::DELETE;
         statement.table_name = tokens[2];
 
-        // WITH WHERE
         if (tokens.size() >= 7 && tokens[3] == "where")
         {
             statement.has_where = true;
@@ -129,7 +145,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
         else
         {
-            statement.has_where = false; // DELETE ALL
+            statement.has_where = false;
         }
 
         return true;
@@ -138,9 +154,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- UPDATE ----------------
     if (tokens[0] == "update")
     {
-        // update users set name = 'x'
-        // OR update users set name = 'x' where id = 1
-
         if (tokens.size() < 6 || tokens[2] != "set")
         {
             error = "Invalid UPDATE syntax";
@@ -159,7 +172,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 statement.update_value.substr(1, statement.update_value.size() - 2);
         }
 
-        // WITH WHERE
         if (tokens.size() >= 10 && tokens[6] == "where")
         {
             statement.has_where = true;
@@ -169,7 +181,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
         else
         {
-            statement.has_where = false; // UPDATE ALL
+            statement.has_where = false;
         }
 
         return true;
@@ -188,6 +200,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
 
         int i = 4;
+        bool pk_found = false; // ✅ per-query, not static
 
         while (i < tokens.size())
         {
@@ -217,7 +230,29 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 return false;
             }
 
-            statement.schema.add_column(col_name, type);
+            bool is_pk = false;
+
+            if (i + 1 < tokens.size() &&
+                tokens[i] == "primary" &&
+                tokens[i + 1] == "key")
+            {
+                if (pk_found)
+                {
+                    error = "Multiple primary keys not allowed";
+                    return false;
+                }
+
+                is_pk = true;
+                pk_found = true;
+                i += 2;
+            }
+
+            Column col;
+            col.name = col_name;
+            col.type = type;
+            col.is_primary = is_pk;
+
+            statement.schema.columns.push_back(col);
 
             if (i < tokens.size() && tokens[i] == ",")
                 i++;

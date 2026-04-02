@@ -29,7 +29,20 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		// ✅ Directly pass values (no Row, no mapping)
+		// PRIMARY KEY CHECK
+		int pk_idx = schema.get_primary_index();
+
+		if (pk_idx != -1)
+		{
+			uint32_t key = std::stoi(statement.raw_values[pk_idx]);
+
+			if (table->exists_by_id(key))
+			{
+				std::cout << "Error: Duplicate primary key\n";
+				break;
+			}
+		}
+
 		table->insert(statement.raw_values);
 
 		std::cout << "Executed INSERT\n";
@@ -72,7 +85,23 @@ void Executor::execute(const Statement &statement)
 		// ================= POINT LOOKUP =================
 		if (statement.has_where)
 		{
-			auto rows = table->find_all_by_id(statement.where_id);
+			std::vector<std::vector<Value>> rows;
+
+			bool has_id = false;
+			for (auto &c : statement.conditions)
+				if (c.first == "id")
+					has_id = true;
+
+			if (has_id)
+			{
+				rows = table->find_all_by_id(statement.where_id);
+			}
+			else
+			{
+				rows = table->scan_all_index();
+			}
+
+			rows = table->filter_rows(rows, statement.conditions);
 
 			if (rows.empty())
 			{

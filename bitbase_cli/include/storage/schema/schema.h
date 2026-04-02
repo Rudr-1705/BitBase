@@ -17,4 +17,6 @@ public:
 
     std::vector<char> serialize() const;
     void deserialize(const char *data);
+
+    int get_primary_index() const;
 };
