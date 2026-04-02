@@ -115,33 +115,50 @@ void Table::insert(const std::vector<std::string> &values)
 
         uint32_t used = *used_ptr;
 
-        if (used + sizeof(uint32_t) + row_size <= PAGE_SIZE)
+        if (used + sizeof(int32_t) + row_size <= PAGE_SIZE)
         {
             char *ptr = (char *)page + used;
 
             uint32_t offset = used;
 
+            // write size
             std::memcpy(ptr, &row_size, sizeof(int32_t));
             ptr += sizeof(int32_t);
 
+            // write data
             std::memcpy(ptr, row_bytes.data(), row_size);
 
             *used_ptr += sizeof(int32_t) + row_size;
 
             pager->flush(page_num);
 
-            // ===== B+ TREE INSERT =====
-            RowPointer rp{page_num, offset};
+            // ================= INDEX INSERT =================
+            int pk_idx = schema.get_primary_index();
 
-            uint32_t key = std::stoi(values[0]);
-
-            SplitResult res = btree_insert(root_page, key, rp, pager);
-
-            if (res.did_split)
+            if (pk_idx != -1)
             {
-                uint32_t old_root = root_page;
-                create_new_root(pager, old_root, res.new_page, res.key);
-                root_page = pager->num_pages - 1;
+                uint32_t key;
+
+                try
+                {
+                    key = std::stoul(values[pk_idx]);
+                }
+                catch (...)
+                {
+                    std::cout << "Error: Invalid primary key value\n";
+                    return;
+                }
+
+                RowPointer rp{page_num, offset};
+
+                SplitResult res = btree_insert(root_page, key, rp, pager);
+
+                if (res.did_split)
+                {
+                    uint32_t old_root = root_page;
+                    create_new_root(pager, old_root, res.new_page, res.key);
+                    root_page = pager->num_pages - 1;
+                }
             }
 
             break;
@@ -407,6 +424,7 @@ bool Table::update_by_id(uint32_t key,
     std::vector<Value> values;
     deserialize_dynamic_row(schema, ptr, values);
 
+    // ================= FIND COLUMN =================
     int col_idx = -1;
     for (size_t i = 0; i < schema.columns.size(); i++)
     {
@@ -420,6 +438,46 @@ bool Table::update_by_id(uint32_t key,
     if (col_idx == -1)
         return false;
 
+    // ================= 🔥 PRIMARY KEY CHECK =================
+    int pk_idx = schema.get_primary_index();
+
+    if (pk_idx != -1 && (int)col_idx == pk_idx)
+    {
+        uint32_t new_key;
+
+        try
+        {
+            new_key = std::stoul(value);
+        }
+        catch (...)
+        {
+            std::cout << "Invalid primary key value\n";
+            return false;
+        }
+
+        // only check if key is actually changing
+        if (new_key != key && exists_by_id(new_key))
+        {
+            std::cout << "Error: Duplicate primary key\n";
+            return false;
+        }
+    }
+
+    // ================= UNIQUE CHECK =================
+    if (schema.columns[col_idx].is_unique)
+    {
+        // if value is changing
+        if (value_to_string(values[col_idx]) != value)
+        {
+            if (exists_value_in_column(col_idx, value))
+            {
+                std::cout << "Error: Duplicate value for UNIQUE column\n";
+                return false;
+            }
+        }
+    }
+
+    // ================= TYPE CONVERSION =================
     DataType type = schema.columns[col_idx].type;
 
     if (type == DataType::INT32)
@@ -435,6 +493,7 @@ bool Table::update_by_id(uint32_t key,
     else if (type == DataType::TEXT)
         values[col_idx] = value;
 
+    // ================= SERIALIZE =================
     std::vector<std::string> str_values;
     for (auto &v : values)
         str_values.push_back(value_to_string(v));
@@ -444,6 +503,7 @@ bool Table::update_by_id(uint32_t key,
 
     uint32_t new_size = new_bytes.size();
 
+    // ================= WRITE =================
     if (new_size <= old_size)
     {
         std::memcpy((char *)page + rp.offset + sizeof(int32_t),
@@ -532,11 +592,16 @@ std::vector<std::vector<Value>> Table::find_all_by_id(uint32_t key)
 
 void Table::delete_all()
 {
+    int pk_idx = schema.get_primary_index();
+
+    if (pk_idx == -1)
+        return;
+
     auto rows = scan_all_index();
 
     for (auto &row : rows)
     {
-        uint32_t key = std::get<int>(row[0]);
+        uint32_t key = std::stoul(value_to_string(row[pk_idx]));
         delete_by_id(key);
     }
 }
@@ -544,11 +609,16 @@ void Table::delete_all()
 void Table::update_all(const std::string &column,
                        const std::string &value)
 {
+    int pk_idx = schema.get_primary_index();
+
+    if (pk_idx == -1)
+        return;
+
     auto rows = scan_all_index();
 
     for (auto &row : rows)
     {
-        uint32_t key = std::get<int>(row[0]);
+        uint32_t key = std::stoul(value_to_string(row[pk_idx]));
         update_by_id(key, column, value);
     }
 }
@@ -615,4 +685,17 @@ bool Table::exists_by_id(uint32_t key)
     std::memcpy(&row_size, ptr, sizeof(int32_t));
 
     return row_size > 0; // not deleted
+}
+
+bool Table::exists_value_in_column(int col_idx, const std::string &value)
+{
+    auto rows = scan_all_index();
+
+    for (auto &row : rows)
+    {
+        if (value_to_string(row[col_idx]) == value)
+            return true;
+    }
+
+    return false;
 }

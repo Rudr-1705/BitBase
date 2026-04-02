@@ -43,6 +43,8 @@ public:
         const std::vector<std::pair<std::string, std::string>> &conditions);
 
     bool exists_by_id(uint32_t key);
+    bool exists_value_in_column(int col_idx, const std::string &value);
+
 private:
     void persist_num_rows();
     uint32_t get_row_start_page() const;

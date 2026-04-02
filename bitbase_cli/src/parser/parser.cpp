@@ -231,6 +231,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
             }
 
             bool is_pk = false;
+            bool is_unique = false;
 
             if (i + 1 < tokens.size() &&
                 tokens[i] == "primary" &&
@@ -246,11 +247,17 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 pk_found = true;
                 i += 2;
             }
+            else if (tokens[i] == "unique")
+            {
+                is_unique = true;
+                i++;
+            }
 
             Column col;
             col.name = col_name;
             col.type = type;
             col.is_primary = is_pk;
+            col.is_unique = is_unique;
 
             statement.schema.columns.push_back(col);
 

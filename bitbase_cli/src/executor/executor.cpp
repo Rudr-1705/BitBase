@@ -29,12 +29,22 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		// PRIMARY KEY CHECK
+		// ===== PRIMARY KEY CHECK =====
 		int pk_idx = schema.get_primary_index();
 
 		if (pk_idx != -1)
 		{
-			uint32_t key = std::stoi(statement.raw_values[pk_idx]);
+			uint32_t key;
+
+			try
+			{
+				key = std::stoul(statement.raw_values[pk_idx]);
+			}
+			catch (...)
+			{
+				std::cout << "Error: Invalid primary key value\n";
+				break;
+			}
 
 			if (table->exists_by_id(key))
 			{
@@ -43,9 +53,24 @@ void Executor::execute(const Statement &statement)
 			}
 		}
 
+		// ===== UNIQUE CHECK =====
+		for (int i = 0; i < (int)schema.columns.size(); i++)
+		{
+			if (schema.columns[i].is_unique)
+			{
+				if (table->exists_value_in_column(i, statement.raw_values[i]))
+				{
+					std::cout << "Error: Duplicate value for UNIQUE column\n";
+					goto insert_end; // clean early exit
+				}
+			}
+		}
+
 		table->insert(statement.raw_values);
 
 		std::cout << "Executed INSERT\n";
+
+	insert_end:
 		break;
 	}
 
@@ -60,7 +85,7 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		// ================= RANGE QUERY =================
+		// ================= RANGE =================
 		if (statement.is_range)
 		{
 			auto rows = table->range_query(statement.range_start, statement.range_end);
@@ -72,34 +97,40 @@ void Executor::execute(const Statement &statement)
 				{
 					std::visit([](auto &&val)
 							   { std::cout << val; }, row[i]);
-
 					if (i != row.size() - 1)
 						std::cout << ", ";
 				}
 				std::cout << ")\n";
 			}
-
 			break;
 		}
 
-		// ================= POINT LOOKUP =================
+		// ================= WHERE =================
 		if (statement.has_where)
 		{
 			std::vector<std::vector<Value>> rows;
 
-			bool has_id = false;
-			for (auto &c : statement.conditions)
-				if (c.first == "id")
-					has_id = true;
+			int pk_idx = table->schema.get_primary_index();
+			std::string pk_name = (pk_idx != -1)
+									  ? table->schema.columns[pk_idx].name
+									  : "";
 
-			if (has_id)
+			bool has_pk = false;
+			uint32_t key = 0;
+
+			for (auto &c : statement.conditions)
 			{
-				rows = table->find_all_by_id(statement.where_id);
+				if (c.first == pk_name)
+				{
+					has_pk = true;
+					key = std::stoul(c.second);
+				}
 			}
+
+			if (has_pk)
+				rows = table->find_all_by_id(key);
 			else
-			{
 				rows = table->scan_all_index();
-			}
 
 			rows = table->filter_rows(rows, statement.conditions);
 
@@ -116,7 +147,6 @@ void Executor::execute(const Statement &statement)
 					{
 						std::visit([](auto &&val)
 								   { std::cout << val; }, row[i]);
-
 						if (i != row.size() - 1)
 							std::cout << ", ";
 					}
@@ -137,7 +167,6 @@ void Executor::execute(const Statement &statement)
 			{
 				std::visit([](auto &&val)
 						   { std::cout << val; }, row[i]);
-
 				if (i != row.size() - 1)
 					std::cout << ", ";
 			}
@@ -165,16 +194,25 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		bool deleted = table->delete_by_id(statement.where_id);
+		int pk_idx = table->schema.get_primary_index();
+		std::string pk_name = (pk_idx != -1)
+								  ? table->schema.columns[pk_idx].name
+								  : "";
+
+		if (statement.where_column != pk_name)
+		{
+			std::cout << "Error: DELETE only supported on primary key\n";
+			break;
+		}
+
+		uint32_t key = std::stoul(statement.where_value);
+
+		bool deleted = table->delete_by_id(key);
 
 		if (!deleted)
-		{
 			std::cout << "Row not found\n";
-		}
 		else
-		{
 			std::cout << "Executed DELETE\n";
-		}
 
 		break;
 	}
@@ -199,19 +237,28 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
+		int pk_idx = table->schema.get_primary_index();
+		std::string pk_name = (pk_idx != -1)
+								  ? table->schema.columns[pk_idx].name
+								  : "";
+
+		if (statement.where_column != pk_name)
+		{
+			std::cout << "Error: UPDATE only supported on primary key\n";
+			break;
+		}
+
+		uint32_t key = std::stoul(statement.where_value);
+
 		bool updated = table->update_by_id(
-			statement.where_id,
+			key,
 			statement.update_column,
 			statement.update_value);
 
 		if (!updated)
-		{
 			std::cout << "Update failed\n";
-		}
 		else
-		{
 			std::cout << "Executed UPDATE\n";
-		}
 
 		break;
 	}
@@ -230,7 +277,6 @@ void Executor::execute(const Statement &statement)
 
 			std::cout << "Executed CREATE TABLE\n";
 		}
-
 		break;
 	}
 
@@ -245,7 +291,6 @@ void Executor::execute(const Statement &statement)
 		{
 			std::cout << "Executed DROP TABLE\n";
 		}
-
 		break;
 	}
 
