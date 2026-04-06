@@ -85,32 +85,17 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
+		int pk_idx = table->schema.get_primary_index();
+
+		std::vector<std::vector<Value>> rows;
+
 		// ================= RANGE =================
 		if (statement.is_range)
 		{
-			auto rows = table->range_query(statement.range_start, statement.range_end);
-
-			for (const auto &row : rows)
-			{
-				std::cout << "(";
-				for (size_t i = 0; i < row.size(); i++)
-				{
-					std::visit([](auto &&val)
-							   { std::cout << val; }, row[i]);
-					if (i != row.size() - 1)
-						std::cout << ", ";
-				}
-				std::cout << ")\n";
-			}
-			break;
+			rows = table->range_query(statement.range_start, statement.range_end);
 		}
-
-		int pk_idx = table->schema.get_primary_index();
-		// ================= WHERE =================
-		if (statement.has_where)
+		else if (statement.has_where)
 		{
-			std::vector<std::vector<Value>> rows;
-
 			std::string pk_name = (pk_idx != -1)
 									  ? table->schema.columns[pk_idx].name
 									  : "";
@@ -134,44 +119,33 @@ void Executor::execute(const Statement &statement)
 			else
 			{
 				if (pk_idx != -1)
-					rows = table->scan_all_index(); // indexed scan
+					rows = table->scan_all_index();
 				else
 					rows = table->get_all_dynamic();
 			}
 
 			rows = table->filter_rows(rows, statement.conditions);
-
-			if (rows.empty())
-			{
-				std::cout << "Row not found\n";
-			}
+		}
+		else
+		{
+			if (pk_idx != -1)
+				rows = table->scan_all_index();
 			else
-			{
-				for (const auto &row : rows)
-				{
-					std::cout << "(";
-					for (size_t i = 0; i < row.size(); i++)
-					{
-						std::visit([](auto &&val)
-								   { std::cout << val; }, row[i]);
-						if (i != row.size() - 1)
-							std::cout << ", ";
-					}
-					std::cout << ")\n";
-				}
-			}
-
-			break;
+				rows = table->get_all_dynamic();
 		}
 
-		// ================= FULL SCAN =================
+		// ================= ORDER BY =================
+		if (statement.has_order)
+		{
+			rows = table->order_rows(rows, statement.order_column);
+		}
 
-		std::vector<std::vector<Value>> rows;
-
-		if (pk_idx != -1)
-			rows = table->scan_all_index();
-		else
-			rows = table->get_all_dynamic();
+		// ================= PRINT =================
+		if (rows.empty())
+		{
+			std::cout << "Row not found\n";
+			break;
+		}
 
 		for (const auto &row : rows)
 		{
@@ -180,6 +154,7 @@ void Executor::execute(const Statement &statement)
 			{
 				std::visit([](auto &&val)
 						   { std::cout << val; }, row[i]);
+
 				if (i != row.size() - 1)
 					std::cout << ", ";
 			}

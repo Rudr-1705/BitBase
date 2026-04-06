@@ -72,61 +72,74 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.has_where = false;
         statement.is_range = false;
         statement.conditions.clear();
+        statement.has_order = false;
 
         // ---------------- WHERE ----------------
-        if (tokens.size() >= 5 && tokens[4] == "where")
+        int i = 4;
+
+        if (i < tokens.size() && tokens[i] == "where")
         {
-            // RANGE QUERY (keep your optimization)
-            if (tokens.size() >= 12 &&
-                tokens[5] == "id" && tokens[6] == ">=" &&
-                tokens[8] == "and" &&
-                tokens[9] == "id" && tokens[10] == "<=")
+            i++;
+
+            // RANGE OPTIMIZATION
+            if (tokens.size() >= i + 7 &&
+                tokens[i] == "id" && tokens[i + 1] == ">=" &&
+                tokens[i + 3] == "and" &&
+                tokens[i + 4] == "id" && tokens[i + 5] == "<=")
             {
                 statement.is_range = true;
-                statement.range_start = std::stoi(tokens[7]);
-                statement.range_end = std::stoi(tokens[11]);
-                return true;
+                statement.range_start = std::stoi(tokens[i + 2]);
+                statement.range_end = std::stoi(tokens[i + 6]);
+                i += 7;
             }
-
-            // GENERAL CONDITIONS
-            // GENERAL CONDITIONS
-            int i = 5;
-
-            while (i < tokens.size())
+            else
             {
-                if (i + 2 >= tokens.size())
-                    break;
-
-                Statement::Condition cond;
-
-                cond.column = tokens[i++];
-                cond.op = tokens[i++]; // =, >, <, !=
-                cond.value = tokens[i++];
-
-                if (cond.value.front() == '\'' && cond.value.back() == '\'')
-                    cond.value = cond.value.substr(1, cond.value.size() - 2);
-
-                statement.conditions.push_back(cond);
-
-                // optional: detect PK for optimization (only '=')
-                if (cond.column == "id" && cond.op == "=")
+                while (i < tokens.size())
                 {
-                    try
+                    if (i + 2 >= tokens.size())
+                        break;
+
+                    Statement::Condition cond;
+
+                    cond.column = tokens[i++];
+                    cond.op = tokens[i++];
+                    cond.value = tokens[i++];
+
+                    if (cond.value.front() == '\'' && cond.value.back() == '\'')
+                        cond.value = cond.value.substr(1, cond.value.size() - 2);
+
+                    statement.conditions.push_back(cond);
+
+                    if (cond.column == "id" && cond.op == "=")
                     {
-                        statement.where_id = std::stoul(cond.value);
+                        try
+                        {
+                            statement.where_id = std::stoul(cond.value);
+                        }
+                        catch (...)
+                        {
+                        }
                     }
-                    catch (...)
-                    {
-                    }
+
+                    if (i < tokens.size() && tokens[i] == "and")
+                        i++;
+                    else
+                        break;
                 }
 
-                if (i < tokens.size() && tokens[i] == "and")
-                    i++;
-                else
-                    break;
+                statement.has_where = !statement.conditions.empty();
             }
+        }
 
-            statement.has_where = !statement.conditions.empty();
+        // ---------------- ORDER BY ----------------
+        for (; i < tokens.size(); i++)
+        {
+            if (tokens[i] == "order" && i + 2 < tokens.size() && tokens[i + 1] == "by")
+            {
+                statement.has_order = true;
+                statement.order_column = tokens[i + 2];
+                break;
+            }
         }
 
         return true;

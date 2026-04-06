@@ -1,6 +1,7 @@
 #include "storage/table/table.h"
 #include <cstring>
 #include <iostream>
+#include <algorithm>
 
 // ===================== CONSTANTS =====================
 
@@ -736,4 +737,38 @@ bool Table::exists_value_in_column(int col_idx, const std::string &value)
     }
 
     return false;
+}
+
+std::vector<std::vector<Value>> Table::order_rows(
+    std::vector<std::vector<Value>> rows,
+    const std::string &column)
+{
+    int idx = schema.get_column_index(column);
+    if (idx == -1)
+        return rows;
+
+    DataType type = schema.columns[idx].type;
+
+    std::sort(rows.begin(), rows.end(),
+              [&](const std::vector<Value> &a, const std::vector<Value> &b)
+              {
+                  std::string va = value_to_string(a[idx]);
+                  std::string vb = value_to_string(b[idx]);
+
+                  try
+                  {
+                      if (type == DataType::INT32 || type == DataType::INT64)
+                          return std::stoll(va) < std::stoll(vb);
+
+                      if (type == DataType::FLOAT || type == DataType::DOUBLE)
+                          return std::stod(va) < std::stod(vb);
+                  }
+                  catch (...)
+                  {
+                  }
+
+                  return va < vb;
+              });
+
+    return rows;
 }

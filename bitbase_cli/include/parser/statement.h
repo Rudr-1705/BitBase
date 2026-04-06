@@ -51,4 +51,7 @@ struct Statement
 
     std::string update_column;
     std::string update_value;
+
+    bool has_order = false;
+    std::string order_column;
 };

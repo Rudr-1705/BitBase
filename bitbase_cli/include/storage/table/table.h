@@ -46,6 +46,10 @@ public:
     bool exists_by_id(uint32_t key);
     bool exists_value_in_column(int col_idx, const std::string &value);
 
+    std::vector<std::vector<Value>> order_rows(
+        std::vector<std::vector<Value>> rows,
+        const std::string &column);
+
 private:
     void persist_num_rows();
     uint32_t get_row_start_page() const;
