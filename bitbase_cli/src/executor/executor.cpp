@@ -149,14 +149,39 @@ void Executor::execute(const Statement &statement)
 		for (const auto &row : rows)
 		{
 			std::cout << "(";
-			for (size_t i = 0; i < row.size(); i++)
-			{
-				std::visit([](auto &&val)
-						   { std::cout << val; }, row[i]);
 
-				if (i != row.size() - 1)
-					std::cout << ", ";
+			if (statement.select_all)
+			{
+				for (size_t i = 0; i < row.size(); i++)
+				{
+					std::visit([](auto &&val)
+							   { std::cout << val; }, row[i]);
+
+					if (i != row.size() - 1)
+						std::cout << ", ";
+				}
 			}
+			else
+			{
+				for (size_t i = 0; i < statement.select_columns.size(); i++)
+				{
+					int idx = table->schema.get_column_index(statement.select_columns[i]);
+
+					if (idx == -1)
+					{
+						std::cout << "NULL";
+					}
+					else
+					{
+						std::visit([](auto &&val)
+								   { std::cout << val; }, row[idx]);
+					}
+
+					if (i != statement.select_columns.size() - 1)
+						std::cout << ", ";
+				}
+			}
+
 			std::cout << ")\n";
 		}
 

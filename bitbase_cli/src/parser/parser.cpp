@@ -60,23 +60,46 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
     // ---------------- SELECT ----------------
     if (tokens[0] == "select")
     {
-        if (tokens.size() < 4 || tokens[2] != "from")
+        statement.select_all = false;
+        statement.select_columns.clear();
+
+        int i = 1;
+
+        // SELECT *
+        if (tokens[i] == "*")
+        {
+            statement.select_all = true;
+            i++;
+        }
+        else
+        {
+            // SELECT col1, col2
+            while (i < tokens.size() && tokens[i] != "from")
+            {
+                if (tokens[i] != ",")
+                    statement.select_columns.push_back(tokens[i]);
+                i++;
+            }
+        }
+
+        if (i >= tokens.size() || tokens[i] != "from")
         {
             error = "Invalid SELECT syntax";
             return false;
         }
 
         statement.type = StatementType::SELECT;
-        statement.table_name = tokens[3];
+        statement.table_name = tokens[i + 1];
+
+        i += 2;
 
         statement.has_where = false;
         statement.is_range = false;
         statement.conditions.clear();
         statement.has_order = false;
+        statement.has_limit = false;
 
         // ---------------- WHERE ----------------
-        int i = 4;
-
         if (i < tokens.size() && tokens[i] == "where")
         {
             i++;
@@ -132,23 +155,22 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
 
         // ---------------- ORDER BY ----------------
-        for (; i < tokens.size(); i++)
+        for (int j = i; j < tokens.size(); j++)
         {
-            if (tokens[i] == "order" && i + 2 < tokens.size() && tokens[i + 1] == "by")
+            if (tokens[j] == "order" && j + 2 < tokens.size() && tokens[j + 1] == "by")
             {
                 statement.has_order = true;
-                statement.order_column = tokens[i + 2];
-                break;
+                statement.order_column = tokens[j + 2];
             }
         }
 
-        for (int j = 0; j < tokens.size(); j++)
+        // ---------------- LIMIT ----------------
+        for (int j = i; j < tokens.size(); j++)
         {
             if (tokens[j] == "limit" && j + 1 < tokens.size())
             {
                 statement.has_limit = true;
                 statement.limit = std::stoi(tokens[j + 1]);
-                break;
             }
         }
 

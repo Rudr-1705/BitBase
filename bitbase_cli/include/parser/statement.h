@@ -57,4 +57,7 @@ struct Statement
 
     bool has_limit = false;
     int limit = 0;
+
+    bool select_all = true;
+    std::vector<std::string> select_columns;
 };
