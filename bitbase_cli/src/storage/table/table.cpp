@@ -105,7 +105,7 @@ void Table::insert(const std::vector<std::string> &values)
 
     uint32_t page_num = get_row_start_page();
 
-    while (true)
+    while (page_num < pager->num_pages || page_num == get_row_start_page())
     {
         void *page = pager->get_page(page_num);
 
@@ -229,52 +229,32 @@ std::vector<std::vector<Value>> Table::get_all_dynamic() const
 
 bool Table::delete_by_id(uint32_t key)
 {
-    auto rows = find_all_by_id(key);
+    // ===== STEP 1: FIND ROW POINTER FIRST =====
+    bool found;
+    RowPointer rp = btree_find(root_page, key, pager, found);
 
-    if (rows.empty())
+    if (!found)
         return false;
 
-    // delete ALL matching keys from B+ tree
+    // ===== STEP 2: MARK STORAGE ROW DELETED =====
+    void *page = pager->get_page(rp.page_id);
+    char *ptr = (char *)page + rp.offset;
+
+    int32_t row_size;
+    std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+    if (row_size > 0)
+    {
+        int32_t neg = -row_size;
+        std::memcpy(ptr, &neg, sizeof(int32_t));
+    }
+
+    // ===== STEP 3: DELETE FROM B+ TREE =====
     while (true)
     {
         bool removed = btree_delete(root_page, key, pager);
         if (!removed)
             break;
-    }
-
-    // mark storage rows deleted
-    uint32_t leaf = btree_find_leaf(root_page, key, pager);
-
-    while (leaf != 0)
-    {
-        void *node = pager->get_page(leaf);
-        uint32_t n = *leaf_node_num_cells(node);
-
-        for (uint32_t i = 0; i < n; i++)
-        {
-            uint32_t k = *leaf_node_key(node, i);
-
-            if (k < key)
-                continue;
-            if (k > key)
-                return true;
-
-            RowPointer rp = *leaf_node_value(node, i);
-
-            void *page = pager->get_page(rp.page_id);
-            char *ptr = (char *)page + rp.offset;
-
-            int32_t row_size;
-            std::memcpy(&row_size, ptr, sizeof(int32_t));
-
-            if (row_size > 0)
-            {
-                row_size = -row_size;
-                std::memcpy(ptr, &row_size, sizeof(int32_t));
-            }
-        }
-
-        leaf = *leaf_node_next_leaf(node);
     }
 
     return true;
@@ -574,7 +554,7 @@ std::vector<std::vector<Value>> Table::find_all_by_id(uint32_t key)
             int32_t row_size;
             std::memcpy(&row_size, ptr, sizeof(int32_t));
 
-            if (row_size < 0)
+            if (row_size <= 0)
                 continue;
 
             ptr += sizeof(int32_t);
@@ -593,18 +573,27 @@ std::vector<std::vector<Value>> Table::find_all_by_id(uint32_t key)
 
 void Table::delete_all()
 {
-    int pk_idx = schema.get_primary_index();
+    num_rows = 0;
 
-    if (pk_idx == -1)
-        return;
+    uint32_t page_num = get_row_start_page();
 
-    auto rows = scan_all_index();
-
-    for (auto &row : rows)
+    while (true)
     {
-        uint32_t key = std::stoul(value_to_string(row[pk_idx]));
-        delete_by_id(key);
+        void *page = pager->get_page(page_num);
+
+        uint32_t used = *(uint32_t *)page;
+
+        if (used <= sizeof(uint32_t))
+            break;
+
+        // clear page safely
+        std::memset(page, 0, PAGE_SIZE);
+        *(uint32_t *)page = sizeof(uint32_t);
+
+        page_num++;
     }
+
+    persist_num_rows();
 }
 
 void Table::update_all(const std::string &column,
@@ -646,11 +635,10 @@ std::vector<std::vector<Value>> Table::filter_rows(
             std::string val = value_to_string(row[idx]);
             std::string target = cond.value;
 
-            DataType type = schema.columns[idx].type;
+            DataType type = schema.columns[idx].type; // ✅ ONLY ONCE
 
             try
             {
-                // ===== NUMERIC TYPES =====
                 if (type == DataType::INT32 || type == DataType::INT64)
                 {
                     long long v = std::stoll(val);
@@ -681,7 +669,7 @@ std::vector<std::vector<Value>> Table::filter_rows(
                 }
                 else
                 {
-                    // ===== STRING / BOOL =====
+                    // TEXT / BOOL
                     if (cond.op == "=" && val != target)
                         ok = false;
                     else if (cond.op == "!=" && val == target)
@@ -694,7 +682,6 @@ std::vector<std::vector<Value>> Table::filter_rows(
             }
             catch (...)
             {
-                // conversion failed → treat as mismatch
                 ok = false;
             }
 
@@ -711,19 +698,22 @@ std::vector<std::vector<Value>> Table::filter_rows(
 
 bool Table::exists_by_id(uint32_t key)
 {
-    bool found;
-    RowPointer rp = btree_find(root_page, key, pager, found);
+    auto rows = find_all_by_id(key);
 
-    if (!found)
-        return false;
+    for (auto &row : rows)
+    {
+        int pk_idx = schema.get_primary_index();
 
-    void *page = pager->get_page(rp.page_id);
-    char *ptr = (char *)page + rp.offset;
+        if (pk_idx == -1)
+            return false;
 
-    int32_t row_size;
-    std::memcpy(&row_size, ptr, sizeof(int32_t));
+        uint32_t val = std::stoul(value_to_string(row[pk_idx]));
 
-    return row_size > 0; // not deleted
+        if (val == key)
+            return true;
+    }
+
+    return false;
 }
 
 bool Table::exists_value_in_column(int col_idx, const std::string &value)
@@ -771,4 +761,242 @@ std::vector<std::vector<Value>> Table::order_rows(
               });
 
     return rows;
+}
+
+int Table::delete_where(const std::vector<Statement::Condition> &conds)
+{
+    int count = 0;
+
+    uint32_t page_num = get_row_start_page();
+
+    while (page_num < pager->num_pages)
+    {
+        void *page = pager->get_page(page_num);
+
+        uint32_t used = *(uint32_t *)page;
+        if (used <= sizeof(uint32_t))
+        {
+            page_num++;
+            continue;
+        }
+
+        char *ptr = (char *)page + sizeof(uint32_t);
+        char *end = (char *)page + used;
+
+        while (ptr < end)
+        {
+            int32_t row_size;
+            std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+            if (row_size <= 0)
+            {
+                ptr += sizeof(int32_t) + std::abs(row_size);
+                continue;
+            }
+
+            char *data_ptr = ptr + sizeof(int32_t);
+
+            std::vector<Value> row;
+            deserialize_dynamic_row(schema, data_ptr, row);
+
+            std::vector<std::vector<Value>> temp = {row};
+
+            if (!filter_rows(temp, conds).empty())
+            {
+                int32_t neg = -row_size;
+                std::memcpy(ptr, &neg, sizeof(int32_t));
+                count++;
+            }
+
+            ptr += sizeof(int32_t) + row_size;
+        }
+
+        page_num++;
+    }
+
+    return count;
+}
+
+int Table::update_where(const std::vector<Statement::Condition> &conds,
+                        const std::string &column,
+                        const std::string &value)
+{
+    int count = 0;
+
+    int col_idx = schema.get_column_index(column);
+    if (col_idx == -1)
+        return 0;
+
+    DataType type = schema.columns[col_idx].type;
+
+    uint32_t page_num = get_row_start_page();
+
+    int pk_idx = schema.get_primary_index();
+
+    if (pk_idx != -1 && schema.columns[pk_idx].name == column)
+    {
+        std::cout << "Error: Cannot update primary key\n";
+        return 0;
+    }
+
+    while (true)
+    {
+        void *page = pager->get_page(page_num);
+        if (!page)
+            break;
+
+        uint32_t used = *(uint32_t *)page;
+        if (used <= sizeof(uint32_t))
+            break;
+
+        char *ptr = (char *)page + sizeof(uint32_t);
+        char *end = (char *)page + used;
+
+        while (ptr < end)
+        {
+            int32_t row_size;
+            std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+            if (row_size <= 0)
+            {
+                ptr += sizeof(int32_t) + std::abs(row_size);
+                continue;
+            }
+
+            char *data_ptr = ptr + sizeof(int32_t);
+
+            std::vector<Value> row;
+            deserialize_dynamic_row(schema, data_ptr, row);
+
+            std::vector<std::vector<Value>> temp = {row};
+
+            if (filter_rows(temp, conds).empty())
+            {
+                ptr += sizeof(int32_t) + row_size;
+                continue;
+            }
+
+            // ===== APPLY UPDATE =====
+            try
+            {
+                if (type == DataType::INT32)
+                    row[col_idx] = std::stoi(value);
+                else if (type == DataType::INT64)
+                    row[col_idx] = std::stoll(value);
+                else if (type == DataType::FLOAT)
+                    row[col_idx] = std::stof(value);
+                else if (type == DataType::DOUBLE)
+                    row[col_idx] = std::stod(value);
+                else if (type == DataType::BOOL)
+                    row[col_idx] = (value == "true");
+                else
+                    row[col_idx] = value;
+            }
+            catch (...)
+            {
+                ptr += sizeof(int32_t) + row_size;
+                continue;
+            }
+
+            // ===== SERIALIZE NEW ROW =====
+            std::vector<std::string> str_values;
+            for (auto &v : row)
+                str_values.push_back(value_to_string(v));
+
+            std::vector<char> new_bytes =
+                serialize_dynamic_row(schema, str_values);
+
+            uint32_t new_size = new_bytes.size();
+
+            // ===== IN-PLACE UPDATE =====
+            if (new_size <= (uint32_t)row_size)
+            {
+                std::memcpy(ptr + sizeof(int32_t),
+                            new_bytes.data(),
+                            new_size);
+            }
+            else
+            {
+                // mark deleted
+                int32_t neg = -row_size;
+                std::memcpy(ptr, &neg, sizeof(int32_t));
+
+                // insert new row (only fallback case)
+                insert(str_values);
+            }
+
+            count++;
+
+            ptr += sizeof(int32_t) + row_size;
+        }
+
+        page_num++;
+    }
+
+    return count;
+}
+
+int Table::delete_where_full(const std::vector<Statement::Condition> &conds)
+{
+    int count = 0;
+
+    uint32_t page_num = get_row_start_page();
+
+    while (true)
+    {
+        void *page = pager->get_page(page_num);
+        uint32_t used = *(uint32_t *)page;
+
+        if (used <= sizeof(uint32_t))
+            break;
+
+        char *ptr = (char *)page + sizeof(uint32_t);
+        char *end = (char *)page + used;
+
+        while (ptr < end)
+        {
+            int32_t row_size;
+            std::memcpy(&row_size, ptr, sizeof(int32_t));
+
+            if (row_size <= 0)
+            {
+                ptr += sizeof(int32_t) + std::abs(row_size);
+                continue;
+            }
+
+            char *data_ptr = ptr + sizeof(int32_t);
+
+            std::vector<Value> row;
+            deserialize_dynamic_row(schema, data_ptr, row);
+
+            std::vector<std::vector<Value>> temp = {row};
+
+            if (!filter_rows(temp, conds).empty())
+            {
+                // ===== extract PK =====
+                int pk_idx = schema.get_primary_index();
+
+                if (pk_idx != -1)
+                {
+                    // ===== PK table → use index =====
+                    uint32_t key = std::stoul(value_to_string(row[pk_idx]));
+                    delete_by_id(key);
+                }
+                else
+                {
+                    // ===== NON-PK table → direct delete =====
+                    int32_t neg = -row_size;
+                    std::memcpy(ptr, &neg, sizeof(int32_t));
+                }
+
+                count++;
+            }
+
+            ptr += sizeof(int32_t) + row_size;
+        }
+
+        page_num++;
+    }
+
+    return count;
 }

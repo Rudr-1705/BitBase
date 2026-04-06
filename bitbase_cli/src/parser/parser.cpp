@@ -189,16 +189,38 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::DELETE;
         statement.table_name = tokens[2];
 
-        if (tokens.size() >= 7 && tokens[3] == "where")
+        statement.has_where = false;
+        statement.conditions.clear();
+
+        int i = 3;
+
+        if (i < tokens.size() && tokens[i] == "where")
         {
-            statement.has_where = true;
-            statement.where_column = tokens[4];
-            statement.where_value = tokens[6];
-            statement.where_id = std::stoi(statement.where_value);
-        }
-        else
-        {
-            statement.has_where = false;
+            i++;
+
+            while (i < tokens.size())
+            {
+                if (i + 2 >= tokens.size())
+                    break;
+
+                Statement::Condition cond;
+
+                cond.column = tokens[i++];
+                cond.op = tokens[i++];
+                cond.value = tokens[i++];
+
+                if (cond.value.front() == '\'' && cond.value.back() == '\'')
+                    cond.value = cond.value.substr(1, cond.value.size() - 2);
+
+                statement.conditions.push_back(cond);
+
+                if (i < tokens.size() && tokens[i] == "and")
+                    i++;
+                else
+                    break;
+            }
+
+            statement.has_where = !statement.conditions.empty();
         }
 
         return true;
@@ -219,22 +241,48 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.update_column = tokens[3];
         statement.update_value = tokens[5];
 
-        if (statement.update_value.front() == '\'' && statement.update_value.back() == '\'')
+        // strip quotes
+        if (!statement.update_value.empty() &&
+            statement.update_value.front() == '\'' &&
+            statement.update_value.back() == '\'')
         {
             statement.update_value =
                 statement.update_value.substr(1, statement.update_value.size() - 2);
         }
 
-        if (tokens.size() >= 10 && tokens[6] == "where")
+        statement.has_where = false;
+        statement.conditions.clear();
+
+        int i = 6;
+
+        // ---------------- WHERE ----------------
+        if (i < tokens.size() && tokens[i] == "where")
         {
-            statement.has_where = true;
-            statement.where_column = tokens[7];
-            statement.where_value = tokens[9];
-            statement.where_id = std::stoi(statement.where_value);
-        }
-        else
-        {
-            statement.has_where = false;
+            i++;
+
+            while (i < tokens.size())
+            {
+                if (i + 2 >= tokens.size())
+                    break;
+
+                Statement::Condition cond;
+
+                cond.column = tokens[i++];
+                cond.op = tokens[i++];
+                cond.value = tokens[i++];
+
+                if (cond.value.front() == '\'' && cond.value.back() == '\'')
+                    cond.value = cond.value.substr(1, cond.value.size() - 2);
+
+                statement.conditions.push_back(cond);
+
+                if (i < tokens.size() && tokens[i] == "and")
+                    i++;
+                else
+                    break;
+            }
+
+            statement.has_where = !statement.conditions.empty();
         }
 
         return true;

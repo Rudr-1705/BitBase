@@ -49,3 +49,9 @@ data/
 *.meta
 
 test.txt
+
+tests/
+expected/
+
+*.bat
+

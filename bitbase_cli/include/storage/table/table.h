@@ -50,6 +50,13 @@ public:
         std::vector<std::vector<Value>> rows,
         const std::string &column);
 
+    int delete_where(const std::vector<Statement::Condition> &conds);
+    int update_where(const std::vector<Statement::Condition> &conds,
+                     const std::string &column,
+                     const std::string &value);
+
+    int delete_where_full(const std::vector<Statement::Condition> &conds);
+
 private:
     void persist_num_rows();
     uint32_t get_row_start_page() const;

@@ -107,8 +107,15 @@ void Executor::execute(const Statement &statement)
 			{
 				if (c.column == pk_name && c.op == "=")
 				{
-					has_pk = true;
-					key = std::stoul(c.value);
+					try
+					{
+						key = std::stoul(c.value);
+						has_pk = true;
+					}
+					catch (...)
+					{
+						has_pk = false;
+					}
 				}
 			}
 
@@ -206,25 +213,50 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		int pk_idx = table->schema.get_primary_index();
-		std::string pk_name = (pk_idx != -1)
-								  ? table->schema.columns[pk_idx].name
-								  : "";
+		// 🔥 IMPORTANT: if PK WHERE → use index
+		bool has_pk = false;
+		uint32_t key = 0;
 
-		if (statement.where_column != pk_name)
+		int pk_idx = table->schema.get_primary_index();
+
+		if (pk_idx != -1)
 		{
-			std::cout << "Error: DELETE only supported on primary key\n";
-			break;
+			std::string pk_name = table->schema.columns[pk_idx].name;
+
+			for (auto &c : statement.conditions)
+			{
+				if (c.column == pk_name && c.op == "=")
+				{
+					try
+					{
+						key = std::stoul(c.value);
+						has_pk = true;
+					}
+					catch (...)
+					{
+					}
+				}
+			}
 		}
 
-		uint32_t key = std::stoul(statement.where_value);
+		if (has_pk)
+		{
+			bool deleted = table->delete_by_id(key);
 
-		bool deleted = table->delete_by_id(key);
-
-		if (!deleted)
-			std::cout << "Row not found\n";
+			if (!deleted)
+				std::cout << "Row not found\n";
+			else
+				std::cout << "Executed DELETE\n";
+		}
 		else
-			std::cout << "Executed DELETE\n";
+		{
+			int deleted = table->delete_where_full(statement.conditions);
+
+			if (deleted == 0)
+				std::cout << "Row not found\n";
+			else
+				std::cout << "Deleted " << deleted << " rows\n";
+		}
 
 		break;
 	}
@@ -249,28 +281,15 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		int pk_idx = table->schema.get_primary_index();
-		std::string pk_name = (pk_idx != -1)
-								  ? table->schema.columns[pk_idx].name
-								  : "";
-
-		if (statement.where_column != pk_name)
-		{
-			std::cout << "Error: UPDATE only supported on primary key\n";
-			break;
-		}
-
-		uint32_t key = std::stoul(statement.where_value);
-
-		bool updated = table->update_by_id(
-			key,
+		int updated = table->update_where(
+			statement.conditions,
 			statement.update_column,
 			statement.update_value);
 
-		if (!updated)
+		if (updated == 0)
 			std::cout << "Update failed\n";
 		else
-			std::cout << "Executed UPDATE\n";
+			std::cout << "Updated " << updated << " rows\n";
 
 		break;
 	}
