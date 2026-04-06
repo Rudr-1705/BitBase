@@ -54,4 +54,7 @@ struct Statement
 
     bool has_order = false;
     std::string order_column;
+
+    bool has_limit = false;
+    int limit = 0;
 };

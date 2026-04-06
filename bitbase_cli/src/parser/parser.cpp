@@ -142,6 +142,16 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
             }
         }
 
+        for (int j = 0; j < tokens.size(); j++)
+        {
+            if (tokens[j] == "limit" && j + 1 < tokens.size())
+            {
+                statement.has_limit = true;
+                statement.limit = std::stoi(tokens[j + 1]);
+                break;
+            }
+        }
+
         return true;
     }
 

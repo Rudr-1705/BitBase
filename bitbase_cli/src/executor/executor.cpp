@@ -118,26 +118,25 @@ void Executor::execute(const Statement &statement)
 			}
 			else
 			{
-				if (pk_idx != -1)
-					rows = table->scan_all_index();
-				else
-					rows = table->get_all_dynamic();
+				rows = table->get_all_dynamic(); // ALWAYS for base scan
 			}
 
 			rows = table->filter_rows(rows, statement.conditions);
 		}
 		else
 		{
-			if (pk_idx != -1)
-				rows = table->scan_all_index();
-			else
-				rows = table->get_all_dynamic();
+			rows = table->get_all_dynamic(); // ALWAYS for base scan
 		}
 
 		// ================= ORDER BY =================
 		if (statement.has_order)
 		{
 			rows = table->order_rows(rows, statement.order_column);
+		}
+
+		if (statement.has_limit && (int)rows.size() > statement.limit)
+		{
+			rows.resize(statement.limit);
 		}
 
 		// ================= PRINT =================
