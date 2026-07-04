@@ -1,4 +1,5 @@
 #include "storage/schema/schema.h"
+#include <cstring>
 
 void Schema::add_column(const std::string &name, DataType type)
 {
@@ -38,6 +39,9 @@ std::vector<char> Schema::serialize() const
 
         uint8_t type = (uint8_t)col.type;
         buffer.push_back(type);
+
+        uint8_t flags = (col.is_primary ? 0x1 : 0x0) | (col.is_unique ? 0x2 : 0x0);
+        buffer.push_back((char)flags);
     }
 
     return buffer;
@@ -65,6 +69,15 @@ void Schema::deserialize(const char *data)
         uint8_t type = *ptr;
         ptr++;
 
-        columns.push_back({name, (DataType)type});
+        uint8_t flags = (uint8_t)*ptr;
+        ptr++;
+
+        Column col;
+        col.name = name;
+        col.type = (DataType)type;
+        col.is_primary = (flags & 0x1) != 0;
+        col.is_unique = (flags & 0x2) != 0;
+
+        columns.push_back(col);
     }
 }

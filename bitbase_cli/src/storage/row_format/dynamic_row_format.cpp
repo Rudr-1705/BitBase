@@ -1,5 +1,6 @@
 #include "storage/row_format/dynamic_row_format.h"
 #include <cstring>
+#include <stdexcept>
 
 void deserialize_dynamic_row(const Schema &schema,
                              const char *data,
@@ -76,7 +77,13 @@ std::vector<char> serialize_dynamic_row(const Schema &schema,
     for (size_t i = 0; i < count; i++)
     {
         const auto &col = schema.columns[i];
-        const std::string &val = values[i];
+        std::string val = values[i];
+
+        // strip quotes if present
+        if (val.size() >= 2 && val.front() == '\'' && val.back() == '\'')
+        {
+            val = val.substr(1, val.size() - 2);
+        }
 
         uint8_t type = (uint8_t)col.type;
         buffer.push_back(type);
@@ -85,18 +92,33 @@ std::vector<char> serialize_dynamic_row(const Schema &schema,
         {
         case DataType::INT32:
         {
+            if (val.empty())
+            {
+                throw std::runtime_error("Empty value for INT column");
+            }
+
             int32_t v = std::stoi(val);
             buffer.insert(buffer.end(), (char *)&v, (char *)&v + sizeof(v));
             break;
         }
         case DataType::DOUBLE:
         {
+            if (val.empty())
+            {
+                throw std::runtime_error("Empty value for DOUBLE column");
+            }
+
             double v = std::stod(val);
             buffer.insert(buffer.end(), (char *)&v, (char *)&v + sizeof(v));
             break;
         }
         case DataType::BOOL:
         {
+            if (val.empty())
+            {
+                throw std::runtime_error("Empty value for BOOL column");
+            }
+
             uint8_t v = (val == "true");
             buffer.push_back(v);
             break;

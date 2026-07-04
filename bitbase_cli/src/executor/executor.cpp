@@ -1,6 +1,11 @@
 #include "executor/executor.h"
 #include <iostream>
 
+Executor::Executor() : wal("wal.log")
+{
+	// wal.recover(db);
+}
+
 Database &Executor::get_db()
 {
 	return db;
@@ -10,6 +15,7 @@ void Executor::execute(const Statement &statement)
 {
 	switch (statement.type)
 	{
+
 	// ===================== INSERT =====================
 	case StatementType::INSERT:
 	{
@@ -29,48 +35,29 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		// ===== PRIMARY KEY CHECK =====
-		int pk_idx = schema.get_primary_index();
-
-		if (pk_idx != -1)
-		{
-			uint32_t key;
-
-			try
-			{
-				key = std::stoul(statement.raw_values[pk_idx]);
-			}
-			catch (...)
-			{
-				std::cout << "Error: Invalid primary key value\n";
-				break;
-			}
-
-			if (table->exists_by_id(key))
-			{
-				std::cout << "Error: Duplicate primary key\n";
-				break;
-			}
-		}
-
 		// ===== UNIQUE CHECK =====
 		for (int i = 0; i < (int)schema.columns.size(); i++)
 		{
-			if (schema.columns[i].is_unique)
+			if (schema.columns[i].is_unique &&
+				table->exists_value_in_column(i, statement.raw_values[i]))
 			{
-				if (table->exists_value_in_column(i, statement.raw_values[i]))
-				{
-					std::cout << "Error: Duplicate value for UNIQUE column\n";
-					goto insert_end; // clean early exit
-				}
+				std::cout << "Error: Duplicate value for UNIQUE column\n";
+				return;
 			}
 		}
 
-		table->insert(statement.raw_values);
+		// ===== APPLY FIRST =====
 
-		std::cout << "Executed INSERT\n";
+		bool ok = table->insert(statement.raw_values);
 
-	insert_end:
+		if (ok)
+		{
+			wal.log_insert(statement.table_name, statement.raw_values);
+			wal.flush();
+
+			std::cout << "Executed INSERT\n";
+		}
+
 		break;
 	}
 
@@ -86,10 +73,8 @@ void Executor::execute(const Statement &statement)
 		}
 
 		int pk_idx = table->schema.get_primary_index();
-
 		std::vector<std::vector<Value>> rows;
 
-		// ================= RANGE =================
 		if (statement.is_range)
 		{
 			rows = table->range_query(statement.range_start, statement.range_end);
@@ -114,39 +99,28 @@ void Executor::execute(const Statement &statement)
 					}
 					catch (...)
 					{
-						has_pk = false;
 					}
 				}
 			}
 
 			if (has_pk)
-			{
 				rows = table->find_all_by_id(key);
-			}
 			else
-			{
-				rows = table->get_all_dynamic(); // ALWAYS for base scan
-			}
+				rows = table->get_all_dynamic();
 
 			rows = table->filter_rows(rows, statement.conditions);
 		}
 		else
 		{
-			rows = table->get_all_dynamic(); // ALWAYS for base scan
+			rows = table->get_all_dynamic();
 		}
 
-		// ================= ORDER BY =================
 		if (statement.has_order)
-		{
 			rows = table->order_rows(rows, statement.order_column);
-		}
 
 		if (statement.has_limit && (int)rows.size() > statement.limit)
-		{
 			rows.resize(statement.limit);
-		}
 
-		// ================= PRINT =================
 		if (rows.empty())
 		{
 			std::cout << "Row not found\n";
@@ -175,14 +149,10 @@ void Executor::execute(const Statement &statement)
 					int idx = table->schema.get_column_index(statement.select_columns[i]);
 
 					if (idx == -1)
-					{
 						std::cout << "NULL";
-					}
 					else
-					{
 						std::visit([](auto &&val)
 								   { std::cout << val; }, row[idx]);
-					}
 
 					if (i != statement.select_columns.size() - 1)
 						std::cout << ", ";
@@ -209,53 +179,26 @@ void Executor::execute(const Statement &statement)
 		if (!statement.has_where)
 		{
 			table->delete_all();
+
+			wal.log_delete(statement.table_name, "ALL");
+			wal.flush();
+
 			std::cout << "Executed DELETE ALL\n";
 			break;
 		}
 
-		// 🔥 IMPORTANT: if PK WHERE → use index
-		bool has_pk = false;
-		uint32_t key = 0;
+		int deleted = table->delete_where_full(statement.conditions);
 
-		int pk_idx = table->schema.get_primary_index();
-
-		if (pk_idx != -1)
+		if (deleted == 0)
 		{
-			std::string pk_name = table->schema.columns[pk_idx].name;
-
-			for (auto &c : statement.conditions)
-			{
-				if (c.column == pk_name && c.op == "=")
-				{
-					try
-					{
-						key = std::stoul(c.value);
-						has_pk = true;
-					}
-					catch (...)
-					{
-					}
-				}
-			}
-		}
-
-		if (has_pk)
-		{
-			bool deleted = table->delete_by_id(key);
-
-			if (!deleted)
-				std::cout << "Row not found\n";
-			else
-				std::cout << "Executed DELETE\n";
+			std::cout << "Row not found\n";
 		}
 		else
 		{
-			int deleted = table->delete_where_full(statement.conditions);
+			wal.log_delete(statement.table_name, "COND");
+			wal.flush();
 
-			if (deleted == 0)
-				std::cout << "Row not found\n";
-			else
-				std::cout << "Deleted " << deleted << " rows\n";
+			std::cout << "Deleted " << deleted << " rows\n";
 		}
 
 		break;
@@ -272,24 +215,25 @@ void Executor::execute(const Statement &statement)
 			break;
 		}
 
-		if (!statement.has_where)
-		{
-			table->update_all(statement.update_column,
-							  statement.update_value);
-
-			std::cout << "Executed UPDATE ALL\n";
-			break;
-		}
-
 		int updated = table->update_where(
 			statement.conditions,
 			statement.update_column,
 			statement.update_value);
 
 		if (updated == 0)
+		{
 			std::cout << "Update failed\n";
+		}
 		else
+		{
+			wal.log_update(statement.table_name,
+						   "COND",
+						   "OLD",
+						   statement.update_value);
+			wal.flush();
+
 			std::cout << "Updated " << updated << " rows\n";
+		}
 
 		break;
 	}

@@ -25,7 +25,7 @@ public:
 
     void set_schema(const Schema &s);
 
-    void insert(const std::vector<std::string> &values);
+    bool insert(const std::vector<std::string> &values);
     std::vector<std::vector<Value>> get_all_dynamic() const;
 
     bool find_by_id(uint32_t key, std::vector<Value> &result);
@@ -56,6 +56,8 @@ public:
                      const std::string &value);
 
     int delete_where_full(const std::vector<Statement::Condition> &conds);
+
+    void rebuild_index();
 
 private:
     void persist_num_rows();

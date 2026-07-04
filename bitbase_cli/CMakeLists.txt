@@ -30,4 +30,6 @@ add_executable(bitbase_cli
     src/storage/database/database.cpp
     src/storage/schema/schema.cpp
     src/storage/row_format/dynamic_row_format.cpp
+    src/storage/wal/wal.cpp
+    src/storage/txn/transaction.cpp
 )

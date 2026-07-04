@@ -18,4 +18,7 @@ public:
 
     void load_catalog();
     void persist_catalog();
+
+    void clear_all_tables();
+    std::unordered_map<std::string, Table *> &get_tables();
 };

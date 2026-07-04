@@ -2,6 +2,18 @@
 #include "utils/tokenizer.h"
 #include <iostream>
 
+static std::string strip_quotes(std::string val)
+{
+    if (!val.empty() &&
+        val.size() >= 2 &&
+        val.front() == '\'' &&
+        val.back() == '\'')
+    {
+        return val.substr(1, val.size() - 2);
+    }
+    return val;
+}
+
 bool Parser::parse(const std::string &input, Statement &statement, std::string &error)
 {
     statement.raw_values.clear();
@@ -44,8 +56,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
             std::string val = tokens[i];
 
-            if (val.front() == '\'' && val.back() == '\'')
-                val = val.substr(1, val.size() - 2);
+            val = strip_quotes(val);
 
             statement.raw_values.push_back(val);
 
@@ -65,7 +76,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
         int i = 1;
 
-        // SELECT *
         if (tokens[i] == "*")
         {
             statement.select_all = true;
@@ -73,7 +83,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
         else
         {
-            // SELECT col1, col2
             while (i < tokens.size() && tokens[i] != "from")
             {
                 if (tokens[i] != ",")
@@ -104,7 +113,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         {
             i++;
 
-            // RANGE OPTIMIZATION
             if (tokens.size() >= i + 7 &&
                 tokens[i] == "id" && tokens[i + 1] == ">=" &&
                 tokens[i + 3] == "and" &&
@@ -126,10 +134,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
                     cond.column = tokens[i++];
                     cond.op = tokens[i++];
-                    cond.value = tokens[i++];
-
-                    if (cond.value.front() == '\'' && cond.value.back() == '\'')
-                        cond.value = cond.value.substr(1, cond.value.size() - 2);
+                    cond.value = strip_quotes(tokens[i++]);
 
                     statement.conditions.push_back(cond);
 
@@ -189,9 +194,6 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.type = StatementType::DELETE;
         statement.table_name = tokens[2];
 
-        statement.has_where = false;
-        statement.conditions.clear();
-
         int i = 3;
 
         if (i < tokens.size() && tokens[i] == "where")
@@ -207,10 +209,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
                 cond.column = tokens[i++];
                 cond.op = tokens[i++];
-                cond.value = tokens[i++];
-
-                if (cond.value.front() == '\'' && cond.value.back() == '\'')
-                    cond.value = cond.value.substr(1, cond.value.size() - 2);
+                cond.value = strip_quotes(tokens[i++]);
 
                 statement.conditions.push_back(cond);
 
@@ -239,23 +238,10 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         statement.table_name = tokens[1];
 
         statement.update_column = tokens[3];
-        statement.update_value = tokens[5];
-
-        // strip quotes
-        if (!statement.update_value.empty() &&
-            statement.update_value.front() == '\'' &&
-            statement.update_value.back() == '\'')
-        {
-            statement.update_value =
-                statement.update_value.substr(1, statement.update_value.size() - 2);
-        }
-
-        statement.has_where = false;
-        statement.conditions.clear();
+        statement.update_value = strip_quotes(tokens[5]);
 
         int i = 6;
 
-        // ---------------- WHERE ----------------
         if (i < tokens.size() && tokens[i] == "where")
         {
             i++;
@@ -269,10 +255,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
 
                 cond.column = tokens[i++];
                 cond.op = tokens[i++];
-                cond.value = tokens[i++];
-
-                if (cond.value.front() == '\'' && cond.value.back() == '\'')
-                    cond.value = cond.value.substr(1, cond.value.size() - 2);
+                cond.value = strip_quotes(tokens[i++]);
 
                 statement.conditions.push_back(cond);
 
@@ -301,7 +284,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
         }
 
         int i = 4;
-        bool pk_found = false; // ✅ per-query, not static
+        bool pk_found = false;
 
         while (i < tokens.size())
         {
@@ -348,7 +331,7 @@ bool Parser::parse(const std::string &input, Statement &statement, std::string &
                 pk_found = true;
                 i += 2;
             }
-            else if (tokens[i] == "unique")
+            else if (i < tokens.size() && tokens[i] == "unique")
             {
                 is_unique = true;
                 i++;

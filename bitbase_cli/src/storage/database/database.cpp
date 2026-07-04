@@ -21,6 +21,20 @@ Database::~Database()
     }
 }
 
+void Database::clear_all_tables()
+{
+    for (auto &pair : tables)
+    {
+        Table *table = pair.second;
+        table->delete_all();
+    }
+}
+
+std::unordered_map<std::string, Table *> &Database::get_tables()
+{
+    return tables;
+}
+
 bool Database::create_table(const std::string &name)
 {
     if (tables.count(name))
@@ -28,6 +42,8 @@ bool Database::create_table(const std::string &name)
 
     std::string filename = DATA_DIR + name + ".db";
     tables[name] = new Table(filename.c_str());
+
+    tables[name]->rebuild_index();
 
     persist_catalog();
     return true;

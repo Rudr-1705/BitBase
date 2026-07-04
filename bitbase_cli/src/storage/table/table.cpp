@@ -96,13 +96,54 @@ std::string value_to_string(const Value &v)
 
 // ===================== INSERT =====================
 
-void Table::insert(const std::vector<std::string> &values)
+bool Table::insert(const std::vector<std::string> &values)
 {
+    // ================= PRIMARY KEY CHECK =================
+    int pk_idx = schema.get_primary_index();
+
+    if (pk_idx != -1)
+    {
+        uint32_t key;
+
+        try
+        {
+            key = std::stoul(values[pk_idx]);
+        }
+        catch (...)
+        {
+            std::cout << "Error: Invalid primary key value\n";
+            return false;
+        }
+
+        // 🔥 USE get_all_dynamic (THIS IS THE REAL SOURCE OF TRUTH)
+        auto rows = get_all_dynamic();
+
+        for (auto &row : rows)
+        {
+            try
+            {
+                uint32_t existing =
+                    std::stoul(value_to_string(row[pk_idx]));
+
+                if (existing == key)
+                {
+                    std::cout << "Error: Duplicate primary key\n";
+                    return false; // 🔥 HARD STOP
+                }
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    // ================= SERIALIZE =================
     std::vector<char> row_bytes =
         serialize_dynamic_row(schema, values);
 
     uint32_t row_size = row_bytes.size();
 
+    // ================= INSERT INTO STORAGE =================
     uint32_t page_num = get_row_start_page();
 
     while (page_num < pager->num_pages || page_num == get_row_start_page())
@@ -134,21 +175,9 @@ void Table::insert(const std::vector<std::string> &values)
             pager->flush(page_num);
 
             // ================= INDEX INSERT =================
-            int pk_idx = schema.get_primary_index();
-
             if (pk_idx != -1)
             {
-                uint32_t key;
-
-                try
-                {
-                    key = std::stoul(values[pk_idx]);
-                }
-                catch (...)
-                {
-                    std::cout << "Error: Invalid primary key value\n";
-                    return;
-                }
+                uint32_t key = std::stoul(values[pk_idx]);
 
                 RowPointer rp{page_num, offset};
 
@@ -170,6 +199,8 @@ void Table::insert(const std::vector<std::string> &values)
 
     num_rows++;
     persist_num_rows();
+
+    return true;
 }
 
 // ===================== SELECT =====================
@@ -586,12 +617,18 @@ void Table::delete_all()
         if (used <= sizeof(uint32_t))
             break;
 
-        // clear page safely
         std::memset(page, 0, PAGE_SIZE);
         *(uint32_t *)page = sizeof(uint32_t);
 
         page_num++;
     }
+
+    root_page = 1;
+
+    void *root = pager->get_page(root_page);
+
+    initialize_leaf_node(root);
+    *node_is_root(root) = 1;
 
     persist_num_rows();
 }
@@ -652,6 +689,10 @@ std::vector<std::vector<Value>> Table::filter_rows(
                         ok = false;
                     else if (cond.op == "<" && !(v < t))
                         ok = false;
+                    else if (cond.op == ">=" && !(v >= t))
+                        ok = false;
+                    else if (cond.op == "<=" && !(v <= t))
+                        ok = false;
                 }
                 else if (type == DataType::FLOAT || type == DataType::DOUBLE)
                 {
@@ -666,6 +707,10 @@ std::vector<std::vector<Value>> Table::filter_rows(
                         ok = false;
                     else if (cond.op == "<" && !(v < t))
                         ok = false;
+                    else if (cond.op == ">=" && !(v >= t))
+                        ok = false;
+                    else if (cond.op == "<=" && !(v <= t))
+                        ok = false;
                 }
                 else
                 {
@@ -677,6 +722,10 @@ std::vector<std::vector<Value>> Table::filter_rows(
                     else if (cond.op == ">" && !(val > target))
                         ok = false;
                     else if (cond.op == "<" && !(val < target))
+                        ok = false;
+                    else if (cond.op == ">=" && !(val >= target))
+                        ok = false;
+                    else if (cond.op == "<=" && !(val <= target))
                         ok = false;
                 }
             }
@@ -698,19 +747,23 @@ std::vector<std::vector<Value>> Table::filter_rows(
 
 bool Table::exists_by_id(uint32_t key)
 {
-    auto rows = find_all_by_id(key);
+    auto rows = get_all_dynamic();
+
+    int pk_idx = schema.get_primary_index();
+    if (pk_idx == -1)
+        return false;
 
     for (auto &row : rows)
     {
-        int pk_idx = schema.get_primary_index();
-
-        if (pk_idx == -1)
-            return false;
-
-        uint32_t val = std::stoul(value_to_string(row[pk_idx]));
-
-        if (val == key)
-            return true;
+        try
+        {
+            uint32_t val = std::stoul(value_to_string(row[pk_idx]));
+            if (val == key)
+                return true;
+        }
+        catch (...)
+        {
+        }
     }
 
     return false;
@@ -718,7 +771,7 @@ bool Table::exists_by_id(uint32_t key)
 
 bool Table::exists_value_in_column(int col_idx, const std::string &value)
 {
-    auto rows = scan_all_index();
+    auto rows = get_all_dynamic();
 
     for (auto &row : rows)
     {
@@ -876,6 +929,16 @@ int Table::update_where(const std::vector<Statement::Condition> &conds,
                 continue;
             }
 
+            // ===== UNIQUE CHECK =====
+            if (schema.columns[col_idx].is_unique &&
+                value_to_string(row[col_idx]) != value &&
+                exists_value_in_column(col_idx, value))
+            {
+                std::cout << "Error: Duplicate value for UNIQUE column\n";
+                ptr += sizeof(int32_t) + row_size;
+                continue;
+            }
+
             // ===== APPLY UPDATE =====
             try
             {
@@ -999,4 +1062,93 @@ int Table::delete_where_full(const std::vector<Statement::Condition> &conds)
     }
 
     return count;
+}
+
+void Table::rebuild_index()
+{
+    // reset tree
+    root_page = 1;
+    void *root = pager->get_page(root_page);
+    initialize_leaf_node(root);
+    *node_is_root(root) = 1;
+
+    int pk_idx = schema.get_primary_index();
+    if (pk_idx == -1)
+        return;
+
+    // 🔥 USE SAME PATH AS SELECT (RELIABLE)
+    auto rows = get_all_dynamic();
+
+    uint32_t page_num = get_row_start_page();
+
+    for (auto &row : rows)
+    {
+        uint32_t key;
+
+        try
+        {
+            key = std::stoul(value_to_string(row[pk_idx]));
+        }
+        catch (...)
+        {
+            continue;
+        }
+
+        // 🔥 find actual row pointer again
+        uint32_t cur_page = get_row_start_page();
+
+        while (true)
+        {
+            void *page = pager->get_page(cur_page);
+
+            uint32_t used = *(uint32_t *)page;
+            if (used <= sizeof(uint32_t))
+                break;
+
+            char *ptr = (char *)page + sizeof(uint32_t);
+            char *end = (char *)page + used;
+
+            while (ptr < end)
+            {
+                int32_t row_size;
+                memcpy(&row_size, ptr, sizeof(int32_t));
+
+                if (row_size <= 0)
+                {
+                    ptr += sizeof(int32_t) + abs(row_size);
+                    continue;
+                }
+
+                char *data_ptr = ptr + sizeof(int32_t);
+
+                std::vector<Value> r;
+                deserialize_dynamic_row(schema, data_ptr, r);
+
+                if (value_to_string(r[pk_idx]) ==
+                    value_to_string(row[pk_idx]))
+                {
+                    uint32_t offset = ptr - (char *)page;
+
+                    RowPointer rp{cur_page, offset};
+
+                    SplitResult res =
+                        btree_insert(root_page, key, rp, pager);
+
+                    if (res.did_split)
+                    {
+                        uint32_t old_root = root_page;
+                        create_new_root(pager, old_root,
+                                        res.new_page, res.key);
+                        root_page = pager->num_pages - 1;
+                    }
+
+                    break;
+                }
+
+                ptr += sizeof(int32_t) + row_size;
+            }
+
+            cur_page++;
+        }
+    }
 }
