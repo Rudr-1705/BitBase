@@ -79,7 +79,6 @@ uint32_t Table::get_row_start_page() const
     return 2;
 }
 
-// 🔥 FIXED VALUE → STRING
 std::string value_to_string(const Value &v)
 {
     return std::visit([](auto &&val) -> std::string
@@ -115,7 +114,7 @@ bool Table::insert(const std::vector<std::string> &values)
             return false;
         }
 
-        // 🔥 USE get_all_dynamic (THIS IS THE REAL SOURCE OF TRUTH)
+        // get_all_dynamic
         auto rows = get_all_dynamic();
 
         for (auto &row : rows)
@@ -128,7 +127,7 @@ bool Table::insert(const std::vector<std::string> &values)
                 if (existing == key)
                 {
                     std::cout << "Error: Duplicate primary key\n";
-                    return false; // 🔥 HARD STOP
+                    return false;
                 }
             }
             catch (...)
@@ -450,7 +449,7 @@ bool Table::update_by_id(uint32_t key,
     if (col_idx == -1)
         return false;
 
-    // ================= 🔥 PRIMARY KEY CHECK =================
+    // ================= PRIMARY KEY CHECK =================
     int pk_idx = schema.get_primary_index();
 
     if (pk_idx != -1 && (int)col_idx == pk_idx)
@@ -672,7 +671,7 @@ std::vector<std::vector<Value>> Table::filter_rows(
             std::string val = value_to_string(row[idx]);
             std::string target = cond.value;
 
-            DataType type = schema.columns[idx].type; // ✅ ONLY ONCE
+            DataType type = schema.columns[idx].type;
 
             try
             {
@@ -1076,7 +1075,6 @@ void Table::rebuild_index()
     if (pk_idx == -1)
         return;
 
-    // 🔥 USE SAME PATH AS SELECT (RELIABLE)
     auto rows = get_all_dynamic();
 
     uint32_t page_num = get_row_start_page();
@@ -1094,7 +1092,6 @@ void Table::rebuild_index()
             continue;
         }
 
-        // 🔥 find actual row pointer again
         uint32_t cur_page = get_row_start_page();
 
         while (true)
