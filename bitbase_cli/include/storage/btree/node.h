@@ -102,7 +102,7 @@ void create_new_root(Pager *pager,
                      uint32_t right_page,
                      uint32_t separator_key);
 
-void print_leaf(void *node);
+// void print_leaf(void *node);
 
 void print_all_leaves(Pager *pager, uint32_t start_page);
 

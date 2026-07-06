@@ -102,18 +102,22 @@ uint32_t internal_find_child(void *node, uint32_t key)
 {
     uint32_t n = *internal_node_num_keys(node);
 
-    uint32_t i = 0;
-    while (i < n && key >= *internal_node_key(node, i))
+    uint32_t left = 0, right = n;
+
+    while (left < right)
     {
-        i++;
+        uint32_t mid = left + (right - left) / 2;
+
+        if (key >= *internal_node_key(node, mid))
+            left = mid + 1;
+        else
+            right = mid;
     }
 
-    if (i == n)
-    {
+    if (left == n)
         return *internal_node_right_child(node);
-    }
 
-    return *internal_node_child(node, i);
+    return *internal_node_child(node, left);
 }
 
 // ===================== LEAF INSERT =====================
